@@ -72,36 +72,41 @@ graph TD
 ---
 
 ### 2. Session Memory Lifecycle (Redis Cache)
-Conversation history is preserved across stateless workers in a high-speed sliding-window Redis structure.
+Conversation history is preserved across stateless workers in a high-speed sliding-window Redis structure, failing back gracefully to in-process memory if Redis is offline.
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant Client as Client (Web / WhatsApp)
-    participant API as FastAPI Router
+    participant API as FastAPI Router / Celery
     participant Redis as Redis Cache
-    participant DB as Supabase PostgreSQL
+    participant Fallback as Local In-Process Dict
 
     Client->>API: Post Query /chat (session_id = "user_123")
     API->>Redis: Check Session History (key = "uchenab:session:user_123")
-    alt Session memory found in Redis
-        Redis-->>API: Return JSON string (List of Turn objects)
-    else Redis cache empty
-        API->>DB: Fetch past transactions from message archives
-        DB-->>API: Return past rows
-        API->>Redis: Cache parsed turns list in Redis
+    alt Redis is connected & key exists
+        Redis-->>API: Return JSON turns list (LangChain messages)
+    else Redis is empty / missing key
+        API->>API: Treat as new conversation (empty context window)
+    else Redis is unreachable / connection failed
+        API->>Fallback: Check local dictionary cache (_histories)
+        Fallback-->>API: Return local memory list (if exists)
     end
-    API->>API: Execute RAG Prompt (Combine History + New Query)
-    API->>Redis: Append Turn (RPUSH User Query + Assistant Response)
-    API->>Redis: Trim list to sliding window limit (LTRIM -20 -1)
-    API->>Redis: Refresh sliding expiry rolling TTL (EXPIRE 24h)
-    API-->>Client: Deliver Message
+    API->>API: Run Agent Turn (Combine history + new query)
+    alt Redis is online
+        API->>Redis: Append Turn (RPUSH User Query + Assistant Response)
+        API->>Redis: Trim list to Context Window (LTRIM -20 -1)
+        API->>Redis: Refresh rolling TTL (EXPIRE 24h)
+    else Fallback mode
+        API->>Fallback: Append Turn & trim list locally
+    end
+    API-->>Client: Deliver Message Response
 ```
 
 ---
 
 ### 3. WhatsApp Messaging & Voice Loop
-Voice and text events from the Meta Graph API webhook are offloaded immediately to background queues to return a fast `200 OK` handshake response.
+Voice and text events from the Meta Graph API webhook are offloaded immediately to background queues to return a fast `200 OK` handshake response, logging transactions to Supabase and issuing read receipts.
 
 ```mermaid
 graph TD
@@ -111,20 +116,27 @@ graph TD
     API -->|Asynchronously Enqueue Task| Broker[(Celery Redis Broker)]
     Broker -->|Picks up Task| Worker["Celery Messaging Worker"]
     
+    %% Read receipt hook
+    Worker -->|Mark message as read| ReadReceipt["whatsapp_client.mark_read (Meta API)"]
+    ReadReceipt --> Meta
+    
     subgraph Inbound processing
         Worker -->|Check Inbound Type| IsVoice{Is Message Voice Note?}
         IsVoice -->|Yes| Download["Download Voice File (.ogg)"]
         Download --> DG["Deepgram Speech-to-Text API"]
-        DG -->|Transcribed Text| Agent["Pydantic AI RAG Agent"]
+        DG -->|Transcribed Text| RecordInbound["conversation_store.record_inbound (Supabase: wa_messages)"]
         IsVoice -->|No| TextOnly["Get Text Content"]
-        TextOnly --> Agent
-      end
+        TextOnly --> RecordInbound
+        RecordInbound --> Agent["Pydantic AI RAG Agent"]
+    end
       
     Agent -->|Compute Context| Search[Vector / Graph Retrieve]
     Agent -->|Formulate Answer| Guard["Output Guardrails (Enforce Roman-Urdu)"]
-    Guard --> Outbox["Save to wa_messages"]
-    Outbox --> SendMeta["Meta Graph API Outbound Call"]
+    Guard --> SendMeta["Meta Graph API Outbound Call"]
     SendMeta --> User
+    
+    %% Save outbound
+    SendMeta --> RecordOutbound["conversation_store.record_outbound (Supabase: wa_messages)"]
 ```
 
 ---
