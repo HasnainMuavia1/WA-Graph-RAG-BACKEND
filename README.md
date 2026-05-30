@@ -111,26 +111,36 @@ graph TD
 ---
 
 ### 4. Agent Message vs. Admin Message Flows
-AI automated workflows run independently from administrative manual intercepts inside the dashboard portal.
+AI automated workflows run independently from administrative manual intercepts inside the dashboard portal, unified through the outbound delivery endpoint.
 
 ```mermaid
 graph TD
+    UserStart([User Activity / Interaction])
+    
+    %% Flows
+    UserStart -->|User inputs message| UserIn([User WhatsApp Input])
+    UserStart -->|Admin opens chat panel| AdminIn([Admin Dashboard UI])
+    
     subgraph Auto Agent Reply Flow
-        UserIn([User WhatsApp Input]) --> Webhook["FastAPI Webhook /api/v1/whatsapp"]
+        UserIn --> Webhook["FastAPI Webhook /api/v1/whatsapp"]
         Webhook --> Celery["Celery Task (process_whatsapp_message)"]
         Celery --> RAG["AI Agent (Autonomous Model)"]
         RAG --> SaveAuto["Save Message (sender = agent, direction = outbound)"]
-        SaveAuto --> OutWA1["Deliver to user via WhatsApp API"]
     end
 
     subgraph Manual Admin Reply Flow
-        AdminIn([Admin Dashboard UI]) --> Auth["JWT Authenticated API Gated Router"]
+        AdminIn --> Auth["JWT Authenticated API Gated Router"]
         Auth --> SendEndpoint["POST /api/v1/conversations/{wa_id}/messages"]
         SendEndpoint --> Bypass["Bypass AI Processing & Guardrails"]
         Bypass --> SaveManual["Save Message (sender = admin, direction = outbound)"]
         SaveManual --> ResetUnread["Update wa_conversations: unread_count = 0"]
-        ResetUnread --> OutWA2["Deliver to user via WhatsApp API"]
     end
+    
+    %% Output
+    SaveAuto --> OutWA["WhatsApp Cloud API (Outbound Delivery)"]
+    ResetUnread --> OutWA
+    
+    OutWA --> UserMobile([User Mobile Device])
 ```
 
 ---
@@ -156,7 +166,14 @@ graph TD
 
 ---
 
-## 🛠️ Installation & Operations
+## 📚 References & Developer Documentation
+To deep-dive into endpoints testing strategies or to check the QA test matrices, refer to our comprehensive internal documentation:
+* 📄 **[API Testing Guide](apitesting.md)**: Detailed step-by-step specifications of all REST operations, Celery hooks, auth handshakes, and postman testing guidelines.
+* 📋 **[QA Test Cases Log](testcases.md)**: Fully granular testing matrices, expected assertions, input/output boundary cases, and performance criteria log.
+
+---
+
+## 🛠️ Ingestion & Setup
 
 ### Service Map
 * `api`: FastAPI application, serving all routes under `/api/v1/*` (port `8058`).
