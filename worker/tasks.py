@@ -200,19 +200,134 @@ async def _process_whatsapp_message(message: Dict[str, Any], contact_wa_id: str)
     except Exception as exc:  # never block the reply on logging
         logger.warning("Failed to persist inbound message: %s", exc)
 
-    # Run the RAG agent with per-user memory.
-    reply = await run_agent_turn(message=user_text, session_id=session_id, user_id=session_id)
+    # ── Out-of-Scope (Tier 1) Classifier ─────────────────────────────────────
+    from agent.guardrails import classify_query_scope
+    scope_verdict = await classify_query_scope(user_text)
+
+    if scope_verdict == "out_of_scope":
+        reply = (
+            "Maazrat, main sirf Uchenab University se mutaliq sawalat ke javab de sakta hoon "
+            "(jaise admissions, fees, eligibility, hostel, courses waghaira). "
+            "Python ya Google jaise general sawalat mere scope se bahar hain."
+        )
+        if transcribed:
+            reply = f'🎙️ I heard: "{user_text}"\n\n{reply}'
+        await whatsapp_client.send_text(contact_wa_id, reply)
+        try:
+            await conversation_store.record_outbound(contact_wa_id, reply, sender="agent")
+        except Exception as exc:
+            logger.warning("Failed to persist outbound out-of-scope message: %s", exc)
+        return {"status": "out_of_scope_replied", "chars": len(reply)}
+
+    # ── RAG Agent Turn Execution ─────────────────────────────────────────────
+    reply, deps = await run_agent_turn(message=user_text, session_id=session_id, user_id=session_id)
 
     # If we transcribed a voice note, echo what we heard for transparency.
     if transcribed:
         reply = f'🎙️ I heard: "{user_text}"\n\n{reply}'
 
+    # ── Extract search metrics and build provenance & debug metadata ──────────
+    import json
+    from datetime import datetime
+    from agent.session_memory import memory_manager
+
+    chunks = getattr(deps, "retrieved_chunks", []) or []
+    graph_facts = getattr(deps, "graph_facts", []) or []
+    selected_tool = getattr(deps, "selected_retrieval_tool", "none") or "none"
+
+    prov_sources = []
+    max_score = 0.0
+    for chunk in chunks:
+        if chunk.score > max_score:
+            max_score = chunk.score
+        meta = chunk.metadata or {}
+        page_sec = meta.get("page") or meta.get("section") or meta.get("page_number")
+        page_sec_str = f"Page/Section {page_sec}" if page_sec else None
+        prov_sources.append({
+            "source_document_name": chunk.document_title,
+            "chunk_id": chunk.chunk_id,
+            "page_section": page_sec_str,
+            "retrieval_method_used": selected_tool,
+            "confidence_score": float(chunk.score)
+        })
+
+    debug_metadata = {
+        "provenance": {
+            "sources": prov_sources,
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "user_query": user_text,
+            "final_answer": reply
+        },
+        "debug": {
+            "selected_retrieval_tool": selected_tool,
+            "retrieved_chunks": [
+                {
+                    "chunk_id": c.chunk_id,
+                    "content": c.content,
+                    "score": float(c.score),
+                    "document_title": c.document_title,
+                    "document_source": c.document_source
+                }
+                for c in chunks
+            ],
+            "neo4j_results": [
+                {
+                    "fact": f.fact,
+                    "valid_at": f.valid_at
+                }
+                for f in graph_facts
+            ],
+            "redis_session_context": memory_manager.get_context_string(session_id),
+            "final_generated_prompt_summary": f"Previous conversation context + current question: {user_text}",
+            "final_answer": reply,
+            "guardrail_result": {
+                "input_allowed": True,
+                "input_reason": None,
+                "output_applied": True
+            }
+        }
+    }
+
+    # ── Confidence Gate (Tier 2) ─────────────────────────────────────────────
+    is_low_confidence = (len(chunks) == 0) or (max_score < 0.015)
+
+    if is_low_confidence:
+        # Suppress response to student. Celery alert and admin notification only.
+        logger.warning("Low confidence detected for university query '%s' (max_score=%f). Suppressing reply.", user_text, max_score)
+        
+        # Trigger background Celery alert
+        notify_admin_weak_context_task.delay(contact_wa_id, user_text)
+
+        # Post a red system alert card inside the thread visible to admin only
+        system_alert = (
+            "⚠️ [SYSTEM ALERT] Low confidence detected: context is weak/missing. "
+            "Celery notification has been triggered. Student was NOT replied to. Please reply manually."
+        )
+        system_alert_with_prov = system_alert + "\n\n<!--PROVENANCE:" + json.dumps(debug_metadata) + "-->"
+        try:
+            await conversation_store.record_outbound(contact_wa_id, system_alert_with_prov, sender="agent")
+        except Exception as exc:
+            logger.warning("Failed to persist outbound system alert: %s", exc)
+        return {"status": "low_confidence_suppressed", "max_score": max_score}
+
+    # ── Normal RAG Response ──────────────────────────────────────────────────
     await whatsapp_client.send_text(contact_wa_id, reply)
 
-    # Persist the agent's outbound reply.
+    # Persist the agent's outbound reply with hidden provenance metadata
+    reply_with_prov = reply + "\n\n<!--PROVENANCE:" + json.dumps(debug_metadata) + "-->"
     try:
-        await conversation_store.record_outbound(contact_wa_id, reply, sender="agent")
+        await conversation_store.record_outbound(contact_wa_id, reply_with_prov, sender="agent")
     except Exception as exc:
-        logger.warning("Failed to persist outbound message: %s", exc)
+        logger.warning("Failed to persist outbound reply message: %s", exc)
 
     return {"status": "replied", "transcribed": transcribed, "chars": len(reply)}
+
+
+@celery_app.task(name="worker.tasks.notify_admin_weak_context_task")
+def notify_admin_weak_context_task(wa_id: str, user_query: str) -> Dict[str, Any]:
+    """
+    Background task to notify/alert admins about a low-confidence university question.
+    """
+    logger.info("ADMIN ALERT [Celery Task]: Student %s asked low-confidence university question: '%s'", wa_id, user_query)
+    return {"status": "notified", "wa_id": wa_id, "query": user_query}
+

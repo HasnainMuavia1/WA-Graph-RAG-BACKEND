@@ -205,3 +205,43 @@ async def apply_output_guardrails(text: str) -> str:
     except Exception as exc:  # fail open on the output path
         logger.warning("Output guardrail error (returning original): %s", exc)
         return text
+
+
+async def classify_query_scope(query: str) -> str:
+    """Classify if the user's query is within the university's scope or completely out-of-scope.
+    
+    If the query is out of scope (e.g. asking about Python, Google, general trivia),
+    returns 'out_of_scope'. Otherwise returns 'in_scope'.
+    """
+    try:
+        from .providers import get_cached_llm, LLM_CHOICE
+
+        client = get_cached_llm()
+        resp = await client.chat.completions.create(
+            model=LLM_CHOICE,
+            temperature=0,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an AI scope classifier for Uchenab University helpdesk.\n"
+                        "Classify if the user's message is asking about university-related matters "
+                        "(e.g., admissions, courses, eligibility, fees, campus, hostel, policies) or if it's "
+                        "completely out-of-scope (e.g., programming languages like Python/Java, tech companies like Google/Apple, "
+                        "general trivia, writing code, politics, recipes, or unrelated chat).\n"
+                        "Respond with ONLY one word: 'IN_SCOPE' or 'OUT_OF_SCOPE'."
+                    )
+                },
+                {"role": "user", "content": query}
+            ],
+            max_tokens=10,
+        )
+        verdict = (resp.choices[0].message.content or "").strip().upper()
+        if "OUT_OF_SCOPE" in verdict:
+            logger.info("Guardrail scope classifier: OUT_OF_SCOPE query '%s'", query)
+            return "out_of_scope"
+        return "in_scope"
+    except Exception as exc:
+        logger.error("Failed to classify scope (defaulting to in_scope): %s", exc)
+        return "in_scope"
+

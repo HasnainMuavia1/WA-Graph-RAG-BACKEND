@@ -49,6 +49,10 @@ class AgentDependencies:
 
     session_id: str
     user_id: Optional[str] = None
+    retrieved_chunks: Optional[list] = None
+    graph_facts: Optional[list] = None
+    selected_retrieval_tool: Optional[str] = None
+
 
 
 _model = OpenAIModel(
@@ -83,6 +87,11 @@ async def search_documents(
     results = await hybrid_search_tool(
         HybridSearchInput(query=query, limit=limit, user_id=ctx.deps.user_id)
     )
+    if ctx.deps.retrieved_chunks is None:
+        ctx.deps.retrieved_chunks = []
+    ctx.deps.retrieved_chunks.extend(results)
+    ctx.deps.selected_retrieval_tool = "hybrid_search"
+
     if not results:
         return "No relevant documents found."
 
@@ -105,6 +114,12 @@ async def search_knowledge_graph_facts(
     Returns facts relevant to the query, with temporal validity where available.
     """
     results = await graph_search_tool(GraphSearchInput(query=query))
+    if ctx.deps.graph_facts is None:
+        ctx.deps.graph_facts = []
+    ctx.deps.graph_facts.extend(results)
+    if not ctx.deps.selected_retrieval_tool:
+        ctx.deps.selected_retrieval_tool = "graph_search"
+
     if not results:
         return "No knowledge-graph facts found."
 

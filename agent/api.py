@@ -201,24 +201,48 @@ def save_conversation_turn(
     memory_manager.add_turn(session_id, user_message, assistant_message)
 
 
+async def get_optional_current_user(request: Request) -> Optional[Dict]:
+    """Optionally extract the current authenticated user from JWT bearer token."""
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return None
+    token = auth[7:]
+    try:
+        from .auth_utils import decode_access_token
+        payload = decode_access_token(token)
+        user_id = payload.get("sub")
+        if not user_id:
+            return None
+        return {
+            "id": user_id,
+            "email": payload.get("email"),
+            "roles": payload.get("roles", [])
+        }
+    except Exception:
+        return None
+
+
 async def execute_agent(
     message: str,
     session_id: str,
     user_id: Optional[str] = None,
-) -> tuple[str, List[ToolCall]]:
+) -> tuple[str, List[ToolCall], AgentDependencies]:
     # ── Input guardrails (fail closed) ────────────────────────────────────────
     from .guardrails import check_input, apply_output_guardrails
+
+    deps = AgentDependencies(session_id=session_id, user_id=user_id)
+    deps.retrieved_chunks = []
+    deps.graph_facts = []
+    deps.selected_retrieval_tool = None
 
     verdict = check_input(message)
     if not verdict.allowed:
         blocked = verdict.user_message or "Maazrat, main is sawal ka jawab nahi de sakta."
         save_conversation_turn(session_id, message, blocked)
-        return blocked, []
+        return blocked, [], deps
     safe_message = verdict.sanitized_input or message
 
     try:
-        deps = AgentDependencies(session_id=session_id, user_id=user_id)
-
         # Build prompt: prepend LangChain memory context if the session has history
         history = get_conversation_context(session_id)
         full_prompt = (
@@ -236,13 +260,14 @@ async def execute_agent(
 
         # Persist to LangChain memory (in-process, no DB)
         save_conversation_turn(session_id, message, response)
-        return response, tools_used
+        return response, tools_used, deps
 
     except Exception as exc:
         logger.error("Agent execution failed: %s", exc)
         error_response = "Maazrat — aap ki request process karte hue masla hua. Dobara koshish karein."
         save_conversation_turn(session_id, message, error_response)
-        return error_response, []
+        return error_response, [], deps
+
 
 
 # ── /api/v1/health ────────────────────────────────────────────────────────────
@@ -275,20 +300,138 @@ async def health_check():
 # ── /api/v1/chat ──────────────────────────────────────────────────────────────
 
 @v1_router.post("/chat", response_model=ChatResponse, tags=["chat"])
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, fastapi_req: Request):
     """Non-streaming chat — returns the full agent response in one payload."""
     try:
         session_id = get_or_create_session(request)
-        response, tools_used = await execute_agent(
+
+        # ── Auth check for admin overlay ──
+        user = await get_optional_current_user(fastapi_req)
+        is_admin = user is not None and "admin" in user.get("roles", [])
+
+        # ── Out-of-Scope check (Tier 1) ──
+        from .guardrails import classify_query_scope
+        scope_verdict = await classify_query_scope(request.message)
+
+        if scope_verdict == "out_of_scope":
+            decline_msg = (
+                "Maazrat, main sirf Uchenab University se mutaliq sawalat ke javab de sakta hoon "
+                "(jaise admissions, eligibility, fees, campus, hostel waghaira). "
+                "Python ya Google jaise general sawalat mere scope se bahar hain."
+            )
+            # Log turn to postgres messages
+            try:
+                await db_utils.add_message(session_id, "user", request.message)
+                await db_utils.add_message(session_id, "assistant", decline_msg, metadata={"out_of_scope": True})
+            except Exception as db_exc:
+                logger.warning("Failed to save out-of-scope turn to DB: %s", db_exc)
+
+            return ChatResponse(
+                message=decline_msg,
+                session_id=session_id,
+                tools_used=[],
+                metadata={"out_of_scope": True}
+            )
+
+        # ── RAG Agent Turn Execution ──
+        response, tools_used, deps = await execute_agent(
             message=request.message,
             session_id=session_id,
             user_id=request.user_id,
         )
+
+        # ── Extract search metrics and build provenance & debug metadata ──
+        import json
+        from datetime import datetime
+
+        chunks = getattr(deps, "retrieved_chunks", []) or []
+        graph_facts = getattr(deps, "graph_facts", []) or []
+        selected_tool = getattr(deps, "selected_retrieval_tool", "none") or "none"
+
+        prov_sources = []
+        max_score = 0.0
+        for chunk in chunks:
+            if chunk.score > max_score:
+                max_score = chunk.score
+            meta = chunk.metadata or {}
+            page_sec = meta.get("page") or meta.get("section") or meta.get("page_number")
+            page_sec_str = f"Page/Section {page_sec}" if page_sec else None
+            prov_sources.append({
+                "source_document_name": chunk.document_title,
+                "chunk_id": chunk.chunk_id,
+                "page_section": page_sec_str,
+                "retrieval_method_used": selected_tool,
+                "confidence_score": float(chunk.score)
+            })
+
+        debug_metadata = {
+            "provenance": {
+                "sources": prov_sources,
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "user_query": request.message,
+                "final_answer": response
+            },
+            "debug": {
+                "selected_retrieval_tool": selected_tool,
+                "retrieved_chunks": [
+                    {
+                        "chunk_id": c.chunk_id,
+                        "content": c.content,
+                        "score": float(c.score),
+                        "document_title": c.document_title,
+                        "document_source": c.document_source
+                    }
+                    for c in chunks
+                ],
+                "neo4j_results": [
+                    {
+                        "fact": f.fact,
+                        "valid_at": f.valid_at
+                    }
+                    for f in graph_facts
+                ],
+                "redis_session_context": get_conversation_context(session_id),
+                "final_generated_prompt_summary": f"Previous conversation context + current question: {request.message}",
+                "final_answer": response,
+                "guardrail_result": {
+                    "input_allowed": True,
+                    "input_reason": None,
+                    "output_applied": True
+                }
+            }
+        }
+
+        # ── Confidence Gate (Tier 2) ──
+        is_low_confidence = (len(chunks) == 0) or (max_score < 0.015)
+
+        if is_low_confidence:
+            # Trigger background Celery task
+            from worker.tasks import notify_admin_weak_context_task
+            notify_admin_weak_context_task.delay(session_id, request.message)
+
+            response = (
+                "Maazrat, mujhe is university sawal ka sahi jawab nahi mila. "
+                "Maine university admin ko alert kar diya hai, woh jald hi aap ki madad karenge."
+            )
+            debug_metadata["debug"]["low_confidence_triggered"] = True
+
+        # ── Persistent Supabase Logs (Phase 2) ──
+        try:
+            await db_utils.add_message(session_id, "user", request.message)
+            await db_utils.add_message(session_id, "assistant", response, metadata=debug_metadata)
+        except Exception as exc:
+            logger.warning("Failed to persist web chat turn to DB: %s", exc)
+
+        # ── Admin-Only Debug Return (Admin Debug Mode) ──
+        res_metadata = {"search_type": str(request.search_type)}
+        if is_admin:
+            res_metadata.update(debug_metadata)
+
         return ChatResponse(
             message=response,
             session_id=session_id,
             tools_used=tools_used,
-            metadata={"search_type": str(request.search_type)},
+            metadata=res_metadata,
         )
     except Exception as exc:
         logger.error("Chat endpoint failed: %s", exc)
@@ -296,18 +439,82 @@ async def chat(request: ChatRequest):
 
 
 @v1_router.post("/chat/stream", tags=["chat"])
-async def chat_stream(request: ChatRequest):
+async def chat_stream(request: ChatRequest, fastapi_req: Request):
     """Streaming chat via Server-Sent Events (SSE)."""
     try:
         session_id = get_or_create_session(request)
+
+        # ── Auth check for admin overlay ──
+        user = await get_optional_current_user(fastapi_req)
+        is_admin = user is not None and "admin" in user.get("roles", [])
 
         async def generate_stream():
             try:
                 yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
 
-                # ── Input guardrails (fail closed) ────────────────────────────
-                from .guardrails import check_input, apply_output_guardrails
+                # ── Out-of-Scope check (Tier 1) ──
+                from .guardrails import classify_query_scope
+                scope_verdict = await classify_query_scope(request.message)
 
+                if scope_verdict == "out_of_scope":
+                    decline_msg = (
+                        "Maazrat, main sirf Uchenab University se mutaliq sawalat ke javab de sakta hoon "
+                        "(jaise admissions, eligibility, fees, campus, hostel waghaira). "
+                        "Python ya Google jaise general sawalat mere scope se bahar hain."
+                    )
+                    yield f"data: {json.dumps({'type': 'text', 'content': decline_msg})}\n\n"
+                    # Log turns
+                    try:
+                        await db_utils.add_message(session_id, "user", request.message)
+                        await db_utils.add_message(session_id, "assistant", decline_msg, metadata={"out_of_scope": True})
+                    except Exception as db_exc:
+                        logger.warning("Failed to save stream out-of-scope to DB: %s", db_exc)
+                    yield f"data: {json.dumps({'type': 'end'})}\n\n"
+                    return
+
+                # ── Confidence Gate Pre-check (Tier 2) ──
+                from .tools import hybrid_search_tool, HybridSearchInput
+                pre_chunks = []
+                try:
+                    pre_chunks = await hybrid_search_tool(
+                        HybridSearchInput(query=request.message, limit=10, user_id=request.user_id)
+                    )
+                except Exception as search_exc:
+                    logger.warning("Pre-check hybrid search failed: %s", search_exc)
+
+                max_score = max([c.score for c in pre_chunks]) if pre_chunks else 0.0
+                is_low_confidence = (len(pre_chunks) == 0) or (max_score < 0.015)
+
+                if is_low_confidence:
+                    # Suppress response. Return notified fallback.
+                    from worker.tasks import notify_admin_weak_context_task
+                    notify_admin_weak_context_task.delay(session_id, request.message)
+
+                    fallback_msg = (
+                        "Maazrat, mujhe is university sawal ka sahi jawab nahi mila. "
+                        "Maine university admin ko alert kar diya hai, woh jald hi aap ki madad karenge."
+                    )
+                    yield f"data: {json.dumps({'type': 'text', 'content': fallback_msg})}\n\n"
+
+                    # Log to Supabase
+                    from datetime import datetime
+                    debug_metadata = {
+                        "provenance": {"sources": [], "timestamp": datetime.utcnow().isoformat() + "Z", "user_query": request.message, "final_answer": fallback_msg},
+                        "debug": {"selected_retrieval_tool": "none", "retrieved_chunks": [], "neo4j_results": [], "redis_session_context": "", "final_answer": fallback_msg, "low_confidence_triggered": True}
+                    }
+                    try:
+                        await db_utils.add_message(session_id, "user", request.message)
+                        await db_utils.add_message(session_id, "assistant", fallback_msg, metadata=debug_metadata)
+                    except Exception as db_exc:
+                        logger.warning("Failed to save stream low-confidence turn to DB: %s", db_exc)
+                    
+                    if is_admin:
+                        yield f"data: {json.dumps({'type': 'tools', 'tools': [], 'metadata': debug_metadata})}\n\n"
+                    yield f"data: {json.dumps({'type': 'end'})}\n\n"
+                    return
+
+                # ── Normal Stream RAG ──
+                from .guardrails import check_input, apply_output_guardrails
                 verdict = check_input(request.message)
                 if not verdict.allowed:
                     blocked = verdict.user_message or "Maazrat, main is sawal ka jawab nahi de sakta."
@@ -318,6 +525,9 @@ async def chat_stream(request: ChatRequest):
                 safe_message = verdict.sanitized_input or request.message
 
                 deps = AgentDependencies(session_id=session_id, user_id=request.user_id)
+                deps.retrieved_chunks = []
+                deps.graph_facts = []
+                deps.selected_retrieval_tool = None
 
                 history = get_conversation_context(session_id)
                 full_prompt = (
@@ -343,18 +553,81 @@ async def chat_stream(request: ChatRequest):
                                         full_response += delta
 
                 tools_used = extract_tool_calls(run.result)
-                if tools_used:
-                    yield f"data: {json.dumps({'type': 'tools', 'tools': [t.model_dump() for t in tools_used]})}\n\n"
-
-                # ── Output guardrails on the assembled response ───────────────
                 guarded = await apply_output_guardrails(full_response)
                 if guarded != full_response:
-                    # Streamed text needs correcting (e.g. Devanagari → Roman Urdu
-                    # or PII redaction). Tell the client to replace the message.
                     yield f"data: {json.dumps({'type': 'replace', 'content': guarded})}\n\n"
 
-                # Save the guarded version to LangChain memory (no DB)
                 save_conversation_turn(session_id, request.message, guarded)
+
+                # Assemble provenance and debug info
+                from datetime import datetime
+                chunks = deps.retrieved_chunks or []
+                graph_facts = deps.graph_facts or []
+                selected_tool = deps.selected_retrieval_tool or "hybrid_search"
+
+                prov_sources = []
+                for chunk in chunks:
+                    meta = chunk.metadata or {}
+                    page_sec = meta.get("page") or meta.get("section") or meta.get("page_number")
+                    page_sec_str = f"Page/Section {page_sec}" if page_sec else None
+                    prov_sources.append({
+                        "source_document_name": chunk.document_title,
+                        "chunk_id": chunk.chunk_id,
+                        "page_section": page_sec_str,
+                        "retrieval_method_used": selected_tool,
+                        "confidence_score": float(chunk.score)
+                    })
+
+                debug_metadata = {
+                    "provenance": {
+                        "sources": prov_sources,
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "user_query": request.message,
+                        "final_answer": guarded
+                    },
+                    "debug": {
+                        "selected_retrieval_tool": selected_tool,
+                        "retrieved_chunks": [
+                            {
+                                "chunk_id": c.chunk_id,
+                                "content": c.content,
+                                "score": float(c.score),
+                                "document_title": c.document_title,
+                                "document_source": c.document_source
+                            }
+                            for c in chunks
+                        ],
+                        "neo4j_results": [
+                            {
+                                "fact": f.fact,
+                                "valid_at": f.valid_at
+                            }
+                            for f in graph_facts
+                        ],
+                        "redis_session_context": get_conversation_context(session_id),
+                        "final_generated_prompt_summary": f"Previous conversation context + current question: {request.message}",
+                        "final_answer": guarded,
+                        "guardrail_result": {
+                            "input_allowed": True,
+                            "input_reason": None,
+                            "output_applied": True
+                        }
+                    }
+                }
+
+                # Save turns durably
+                try:
+                    await db_utils.add_message(session_id, "user", request.message)
+                    await db_utils.add_message(session_id, "assistant", guarded, metadata=debug_metadata)
+                except Exception as exc:
+                    logger.warning("Failed to persist stream turn: %s", exc)
+
+                # If the user is an admin, stream the final metadata event containing debug info
+                if is_admin:
+                    yield f"data: {json.dumps({'type': 'tools', 'tools': [t.model_dump() for t in tools_used], 'metadata': debug_metadata})}\n\n"
+                elif tools_used:
+                    yield f"data: {json.dumps({'type': 'tools', 'tools': [t.model_dump() for t in tools_used]})}\n\n"
+
                 yield f"data: {json.dumps({'type': 'end'})}\n\n"
 
             except Exception as exc:

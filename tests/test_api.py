@@ -169,7 +169,7 @@ class TestExecuteAgent:
             patch("agent.api.save_conversation_turn", MagicMock()),
         ):
             mock_agent.run = AsyncMock(return_value=mock_result)
-            response, tools = await execute_agent("What is AI?", "session-1")
+            response, tools, deps = await execute_agent("What is AI?", "session-1")
 
         assert response == "This is the agent response"
         assert isinstance(tools, list)
@@ -184,7 +184,7 @@ class TestExecuteAgent:
             patch("agent.api.save_conversation_turn", MagicMock()),
         ):
             mock_agent.run = AsyncMock(side_effect=RuntimeError("LLM timeout"))
-            response, tools = await execute_agent("Question", "session-1")
+            response, tools, deps = await execute_agent("Question", "session-1")
 
         # Graceful fallback is returned in Roman Urdu (product language policy).
         assert response  # non-empty

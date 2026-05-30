@@ -26,12 +26,13 @@ The RAG pipeline retrieves and fuses context from both vector search and structu
 ```mermaid
 graph TD
     User([User Query]) --> IG["Input Guardrails (agent/guardrails.py)"]
-    IG -->|Allowed| Agent["Pydantic AI RAG Agent (agent/agent.py)"]
     IG -->|Blocked| BlockedMsg["Return Guardrail Security Alert"]
+    IG -->|Allowed| ScopeCheck{Is Query In-Scope?}
+    
+    ScopeCheck -->|No - Out of Scope| OutOfScopeMsg["Graceful Refusal in Roman Urdu"]
+    ScopeCheck -->|Yes - In Scope| Agent["Pydantic AI RAG Agent (agent/agent.py)"]
     
     Agent -->|1. Loads Context| Memory[(Redis Session Memory)]
-    
-    %% Agent Brain Pass / Tool Decision
     Agent -->|2. Agent Brain Pass: Analyzes Intent| ToolRouter{Which Tool is Needed?}
     
     %% Tool Routing
@@ -59,14 +60,27 @@ graph TD
     RERANK --> FusedDocContext["Fused Documents Text Context"]
     Neo4jSearch --> GraphContext["Structured Entity Facts"]
     
-    FusedDocContext --> PromptBuilder["System Prompt Generator"]
-    GraphContext --> PromptBuilder
+    %% Relevance gate
+    FusedDocContext --> ConfGate{Relevance Max Score >= 0.015?}
+    GraphContext --> ConfGate
+    
+    %% Low Confidence branch
+    ConfGate -->|No - Low Confidence| LowConf["Low Confidence Handling"]
+    LowConf --> CeleryAlert["Dispatch Celery Task: notify_admin_weak_context_task"]
+    LowConf --> SaveAlert["Post Red Warning Card to Admin Transcript"]
+    LowConf --> ChannelSplit{Messaging Channel?}
+    ChannelSplit -->|WhatsApp| Suppress["Suppress Automated Student Reply"]
+    ChannelSplit -->|Web Chat| WebFallback["Return Polite Support Escalation Refusal"]
+    
+    %% High Confidence branch
+    ConfGate -->|Yes - High Confidence| PromptBuilder["System Prompt Generator"]
     Memory --> PromptBuilder
     
     PromptBuilder --> LLM["OpenAI GPT-4o-mini / GPT-4o"]
     LLM --> RawOutput["Raw Agent Response"]
     RawOutput --> OG["Output Guardrails (PII & Leak Redactor)"]
-    OG -->|Cleaned Response| UserResponse([Final Response])
+    OG -->|Cleaned Response| SaveProvenance["Save Message + JSON Metadata (Provenance Logs)"]
+    SaveProvenance --> UserResponse([Final Clean Response to Student])
 ```
 
 ---
@@ -150,17 +164,23 @@ graph TD
     
     %% Flows
     UserStart -->|User inputs message| UserIn([User WhatsApp Input])
-    UserStart -->|Admin opens chat panel| AdminIn([Admin Dashboard UI])
+    UserStart -->|Admin views Alert & Types Message| AdminIn([Admin Dashboard UI])
     
     subgraph Auto Agent Reply Flow
         UserIn --> Webhook["FastAPI Webhook /api/v1/whatsapp"]
         Webhook --> Celery["Celery Task (process_whatsapp_message)"]
         Celery --> RAG["AI Agent (Autonomous Model)"]
-        RAG --> SaveAuto["Save Message (sender = agent, direction = outbound)"]
+        
+        %% Splitting based on confidence
+        RAG --> ScoreCheck{Confidence Score Check}
+        ScoreCheck -->|Strong| SaveAuto["Save Message (sender = agent, direction = outbound)"]
+        ScoreCheck -->|Weak / Low Confidence| AlertAdmin["Post Warning Banner to Admin Inbox + Suppress Reply"]
     end
 
-    subgraph Manual Admin Reply Flow
-        AdminIn --> Auth["JWT Authenticated API Gated Router"]
+    subgraph Manual Admin Intercept & Reply
+        AlertAdmin -->|Visual Alert Card In Inbox| AdminIn
+        AdminIn -->|Admin toggles Debug Mode| ViewProvenance["View Provenance Logs (retrieved chunks, scores, prompt summary)"]
+        AdminIn -->|Admin types direct response| Auth["JWT Authenticated API Gated Router"]
         Auth --> SendEndpoint["POST /api/v1/conversations/{wa_id}/messages"]
         SendEndpoint --> Bypass["Bypass AI Processing & Guardrails"]
         Bypass --> SaveManual["Save Message (sender = admin, direction = outbound)"]

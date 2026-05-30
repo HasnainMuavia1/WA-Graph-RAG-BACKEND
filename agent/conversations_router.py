@@ -84,6 +84,21 @@ async def get_messages_endpoint(
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
     messages = await conversation_store.get_messages(wa_id, limit=limit, after=after)
+    
+    import json
+    for msg in messages:
+        content = msg.get("content") or ""
+        if msg.get("direction") == "outbound" and "<!--PROVENANCE:" in content:
+            parts = content.split("<!--PROVENANCE:")
+            msg["content"] = parts[0].strip()
+            prov_tag = parts[1].split("-->")[0].strip()
+            try:
+                msg["metadata"] = json.loads(prov_tag)
+            except Exception:
+                msg["metadata"] = {}
+        else:
+            msg["metadata"] = {}
+
     if mark_read and not after:
         await conversation_store.mark_read(wa_id)
     return {"conversation": conv, "messages": messages, "count": len(messages)}
