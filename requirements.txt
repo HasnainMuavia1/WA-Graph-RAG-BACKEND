@@ -1,0 +1,51 @@
+# ── Core API ──────────────────────────────────────────────────────────────────
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.0.0
+pydantic-ai>=0.0.40
+python-dotenv>=1.0.0
+python-multipart>=0.0.9   # multipart/form-data for document uploads
+
+# ── LLM & Embeddings & Memory ─────────────────────────────────────────────────
+openai>=1.50.0
+langchain-core>=0.3.0
+
+
+# ── Supabase & PostgreSQL ────────────────────────────────────────────────────
+supabase>=2.0.0
+asyncpg>=0.29.0
+
+# ── Knowledge Graph ───────────────────────────────────────────────────────────
+neo4j>=5.0.0
+
+# ── AWS S3 ────────────────────────────────────────────────────────────────────
+boto3>=1.35.0
+
+# ── Document Parsing ──────────────────────────────────────────────────────────
+pypdf>=4.0.0          # PDF
+python-docx>=1.1.0    # .docx
+openpyxl>=3.1.0       # .xlsx
+python-pptx>=0.6.23   # .pptx
+beautifulsoup4>=4.12  # .html
+
+# ── Hybrid Retrieval (LlamaIndex BM25) ────────────────────────────────────────
+llama-index-core>=0.10.0
+llama-index-retrievers-bm25>=0.1.0
+
+# ── Auth ─────────────────────────────────────────────────────────────────────
+PyJWT>=2.8.0
+bcrypt>=4.0.0
+
+# ── Async task queue (Celery + Redis) ────────────────────────────────────────
+celery[redis]>=5.4.0
+redis>=5.0.0
+
+# ── Messaging & Voice (WhatsApp Cloud API + Deepgram) ─────────────────────────
+httpx>=0.27.0         # WhatsApp Graph API + media download
+deepgram-sdk>=7.0.0   # Voice-note transcription (v7 async client API)
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+pytest>=8.0.0
+pytest-asyncio>=0.24.0
+httpx>=0.27.0
+
