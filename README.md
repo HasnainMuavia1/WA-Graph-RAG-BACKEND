@@ -29,25 +29,44 @@ graph TD
     IG -->|Allowed| Agent["Pydantic AI RAG Agent (agent/agent.py)"]
     IG -->|Blocked| BlockedMsg["Return Guardrail Security Alert"]
     
-    Agent -->|Retrieves Session context| Memory[(Redis Memory Cache)]
-    Agent -->|Search Query| VectorSearch["pgvector Semantic Search (Supabase)"]
-    Agent -->|Search Query| BM25Search["BM25 Keyword Search (LlamaIndex)"]
-    Agent -->|Search Query| Neo4jSearch["Neo4j Knowledge Graph (Cypher Queries)"]
+    Agent -->|1. Loads Context| Memory[(Redis Session Memory)]
     
-    VectorSearch --> RERANK["Reciprocal Rank Fusion (RRF)"]
-    BM25Search --> RERANK
+    %% Agent Brain Pass / Tool Decision
+    Agent -->|2. Agent Brain Pass: Analyzes Intent| ToolRouter{Which Tool is Needed?}
     
-    RERANK --> FusedContext["Fused Documents Text Context"]
-    Neo4jSearch --> GraphContext["Graph Relationships Context"]
+    %% Tool Routing
+    ToolRouter -->|Factual / Entity Relations| GraphTool["search_knowledge_graph_facts (Tool)"]
+    ToolRouter -->|Document / Policy Search| DocTool["search_documents (Tool)"]
+    ToolRouter -->|Complex / Structural + Context| Both["Invoke Both Tools"]
     
-    FusedContext --> PromptBuilder["System Prompt Generator"]
+    %% Graph Tool execution
+    GraphTool --> Neo4jSearch["Neo4j Knowledge Graph (Cypher Queries)"]
+    
+    %% Doc Tool execution
+    DocTool --> HybridSearch["Hybrid Search Engine"]
+    Both --> Neo4jSearch
+    Both --> HybridSearch
+    
+    %% Hybrid Search Breakdown
+    subgraph Hybrid Retrieval Pipeline
+        HybridSearch --> VectorSearch["pgvector Semantic Search (Supabase)"]
+        HybridSearch --> BM25Search["BM25 Keyword Search (LlamaIndex)"]
+        VectorSearch --> RERANK["Reciprocal Rank Fusion (RRF)"]
+        BM25Search --> RERANK
+    end
+    
+    %% Context synthesis
+    RERANK --> FusedDocContext["Fused Documents Text Context"]
+    Neo4jSearch --> GraphContext["Structured Entity Facts"]
+    
+    FusedDocContext --> PromptBuilder["System Prompt Generator"]
     GraphContext --> PromptBuilder
     Memory --> PromptBuilder
     
-    PromptBuilder --> LLM["OpenAI GPT-4o Model"]
-    LLM --> RawOutput["Raw Roman-Urdu / English Output"]
+    PromptBuilder --> LLM["OpenAI GPT-4o-mini / GPT-4o"]
+    LLM --> RawOutput["Raw Agent Response"]
     RawOutput --> OG["Output Guardrails (PII & Leak Redactor)"]
-    OG -->|Cleaned Response| UserResponse([Final Output Delivery])
+    OG -->|Cleaned Response| UserResponse([Final Response])
 ```
 
 ---
