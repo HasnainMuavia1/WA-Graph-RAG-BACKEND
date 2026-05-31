@@ -4,7 +4,7 @@ Unit tests for agent search tools.
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -16,7 +16,6 @@ from agent.tools import (
     HybridSearchInput,
     VectorSearchInput,
     get_entity_relationships_tool,
-    get_document_tool,
     graph_search_tool,
     hybrid_search_tool,
     list_documents_tool,
@@ -184,7 +183,6 @@ class TestHybridSearchTool:
 class TestListDocumentsTool:
     @pytest.mark.asyncio
     async def test_returns_document_metadata(self):
-        from datetime import datetime
         db_rows = [
             {
                 "id": "doc-1",

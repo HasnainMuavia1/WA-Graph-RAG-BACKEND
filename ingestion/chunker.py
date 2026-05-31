@@ -5,7 +5,7 @@ Semantic chunking implementation for intelligent document splitting.
 import os
 import re
 import logging
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from datetime import datetime
 import asyncio
@@ -109,7 +109,7 @@ class SemanticChunker:
         # Check if content is tabular data (Excel, CSV) - use simple chunking
         if self._is_tabular_data(content):
             logger.info("   📊 Detected tabular data (Excel/CSV), using fast simple chunking")
-            logger.info(f"   ⚡ This will be much faster than semantic chunking")
+            logger.info("   ⚡ This will be much faster than semantic chunking")
             return self._simple_chunk(content, base_metadata)
         
         # First, try semantic chunking if enabled
@@ -118,12 +118,12 @@ class SemanticChunker:
         
         if len(content) >= max_size_for_semantic:
             logger.info(f"   ⚠️  Document is very large ({len(content):,} chars)")
-            logger.info(f"   ⚡ Using simple chunking for faster processing (semantic chunking skipped)")
+            logger.info("   ⚡ Using simple chunking for faster processing (semantic chunking skipped)")
             return self._simple_chunk(content, base_metadata)
         
         if self.config.use_semantic_splitting and len(content) > self.config.chunk_size and len(content) < max_size_for_semantic:
-            logger.info(f"   🧠 Using semantic chunking (intelligent splitting)...")
-            logger.info(f"   ⏱️  Timeout: 60 seconds (will fallback to simple if timeout)")
+            logger.info("   🧠 Using semantic chunking (intelligent splitting)...")
+            logger.info("   ⏱️  Timeout: 60 seconds (will fallback to simple if timeout)")
             try:
                 # Add timeout to semantic chunking
                 import asyncio
@@ -142,13 +142,13 @@ class SemanticChunker:
                         base_metadata
                     )
                 else:
-                    logger.warning(f"   ⚠️  Semantic chunking returned no chunks, using simple chunking")
+                    logger.warning("   ⚠️  Semantic chunking returned no chunks, using simple chunking")
             except asyncio.TimeoutError:
-                logger.warning(f"   ⚠️  Semantic chunking timed out after 60s")
-                logger.info(f"   ⚡ Falling back to simple chunking...")
+                logger.warning("   ⚠️  Semantic chunking timed out after 60s")
+                logger.info("   ⚡ Falling back to simple chunking...")
             except Exception as e:
                 logger.warning(f"   ⚠️  Semantic chunking failed: {type(e).__name__}: {e}")
-                logger.info(f"   ⚡ Falling back to simple chunking...")
+                logger.info("   ⚡ Falling back to simple chunking...")
         
         # Fallback to rule-based chunking
         return self._simple_chunk(content, base_metadata)
@@ -272,14 +272,14 @@ class SemanticChunker:
         """
         # For tabular data, use simple splitting (much faster)
         if self._is_tabular_data(section):
-            logger.debug(f"      Tabular data detected in section, using simple split")
+            logger.debug("      Tabular data detected in section, using simple split")
             return self._simple_split(section)
         
         # Limit content size sent to LLM (max 20KB to avoid timeouts)
         max_llm_content_size = 20000
         if len(section) > max_llm_content_size:
             logger.warning(f"      ⚠️  Section too large ({len(section):,} chars) for LLM")
-            logger.info(f"      ⚡ Using simple chunking instead")
+            logger.info("      ⚡ Using simple chunking instead")
             return self._simple_split(section)
         
         try:
@@ -319,13 +319,13 @@ class SemanticChunker:
                 
                 return valid_chunks if valid_chunks else self._simple_split(section)
             except asyncio.TimeoutError:
-                logger.warning(f"      ⚠️  LLM chunking timed out after 30s")
-                logger.info(f"      ⚡ Using simple chunking")
+                logger.warning("      ⚠️  LLM chunking timed out after 30s")
+                logger.info("      ⚡ Using simple chunking")
                 return self._simple_split(section)
             
         except Exception as e:
             logger.warning(f"      ⚠️  LLM chunking failed: {type(e).__name__}: {e}")
-            logger.info(f"      ⚡ Using simple chunking")
+            logger.info("      ⚡ Using simple chunking")
             return self._simple_split(section)
     
     def _simple_split(self, text: str) -> List[str]:

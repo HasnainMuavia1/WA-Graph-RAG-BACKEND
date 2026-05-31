@@ -2,9 +2,7 @@
 Unit tests for access-control logic.
 """
 
-import os
 
-import pytest
 
 from agent.access_control import (
     assign_access_level,

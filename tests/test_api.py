@@ -14,11 +14,8 @@ import pytest
 
 from agent.models import (
     ChatRequest,
-    ChatResponse,
     HealthStatus,
     SearchRequest,
-    SearchType,
-    ToolCall,
 )
 
 
@@ -219,7 +216,6 @@ class TestHealthCheckLogic:
     async def test_health_response_model_fields(self):
         """HealthStatus model correctly represents all status variants."""
         from datetime import datetime
-        from agent.models import HealthStatus
 
         for status in ("healthy", "degraded", "unhealthy"):
             h = HealthStatus(

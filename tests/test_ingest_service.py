@@ -287,6 +287,6 @@ class TestIngestSingleS3Object:
             patch("ingestion.file_parsers.parse_document", return_value=("document text", {})),
             patch.object(svc, "ingest_document", _fake_ingest),
         ):
-            result = await svc.ingest_single_s3_object("docs/report.pdf", "my-private-bucket")
+            await svc.ingest_single_s3_object("docs/report.pdf", "my-private-bucket")
 
         assert captured_level[0] == "private"

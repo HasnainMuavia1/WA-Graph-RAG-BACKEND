@@ -7,7 +7,7 @@ import os
 direct_url = os.getenv("DIRECT_DATABASE_URL") or os.getenv("DATABASE_URL") or "postgresql://postgres:postgres@localhost:5432/postgres?sslmode=require"
 
 async def migrate():
-    print(f"Connecting directly to Supabase Postgres...")
+    print("Connecting directly to Supabase Postgres...")
     conn = await asyncpg.connect(direct_url)
     try:
         # Run DDL to add avatar_url column if not exists

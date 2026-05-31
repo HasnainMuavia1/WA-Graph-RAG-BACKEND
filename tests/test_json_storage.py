@@ -4,7 +4,6 @@ Unit tests for JSONStorage (file-based session/conversation persistence).
 
 import os
 import json
-import tempfile
 
 import pytest
 

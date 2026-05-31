@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from ingestion.chunker import ChunkingConfig, DocumentChunk, SimpleChunker
+from ingestion.chunker import DocumentChunk
 from ingestion.embedder import EmbeddingCache, EmbeddingGenerator, create_embedder
 
 

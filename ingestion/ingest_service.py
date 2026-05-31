@@ -30,7 +30,6 @@ Key behaviours
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import logging
 import os
@@ -39,7 +38,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -123,7 +121,6 @@ class IngestService:
             get_document_chunks,
             upsert_document,
             save_chunks,
-            delete_document_chunks,
             delete_chunks_by_ids,
         )
         from ingestion.graph_builder import build_knowledge_graph
@@ -328,7 +325,6 @@ class IngestService:
         from ingestion.s3_utils import download_document_from_s3
         from ingestion.file_parsers import parse_document
         from agent.access_control import assign_access_level
-        import os
 
         private_bucket = os.getenv("S3_PRIVATE_BUCKET", "")
         bucket_type = "private" if bucket_name == private_bucket else "public"

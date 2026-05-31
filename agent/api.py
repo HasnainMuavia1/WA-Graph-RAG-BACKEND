@@ -37,6 +37,7 @@ from fastapi.responses import StreamingResponse
 from fastapi import APIRouter
 
 from .agent import rag_agent, AgentDependencies
+from . import db_utils
 from .db_utils import (
     initialize_database,
     close_database,
@@ -74,7 +75,7 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 INGEST_INTERVAL_MINUTES = int(os.getenv("INGEST_INTERVAL_MINUTES", "15"))
 
 # ── LangChain session memory (no DB persistence) ──────────────────────────────
-from .session_memory import memory_manager
+from .session_memory import memory_manager  # noqa: E402
 
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL.upper()),
@@ -341,7 +342,6 @@ async def chat(request: ChatRequest, fastapi_req: Request):
         )
 
         # ── Extract search metrics and build provenance & debug metadata ──
-        import json
         from datetime import datetime
 
         chunks = getattr(deps, "retrieved_chunks", []) or []
@@ -949,11 +949,11 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 app.include_router(v1_router)
 
-from .auth_router import router as auth_router
-from .users_router import router as users_router
-from .whatsapp_router import router as whatsapp_router
-from .conversations_router import router as conversations_router
-from .dashboard_router import router as dashboard_router
+from .auth_router import router as auth_router  # noqa: E402
+from .users_router import router as users_router  # noqa: E402
+from .whatsapp_router import router as whatsapp_router  # noqa: E402
+from .conversations_router import router as conversations_router  # noqa: E402
+from .dashboard_router import router as dashboard_router  # noqa: E402
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(whatsapp_router)

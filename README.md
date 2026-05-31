@@ -25,12 +25,12 @@ The RAG pipeline retrieves and fuses context from both vector search and structu
 
 ```mermaid
 graph TD
-    User([User Query]) --> IG["Input Guardrails (agent/guardrails.py)"]
-    IG -->|Blocked| BlockedMsg["Return Guardrail Security Alert"]
-    IG -->|Allowed| ScopeCheck{Is Query In-Scope?}
+    User([User Query]) --> ScopeCheck{Is Query In-Scope?<br/>agent/guardrails.py}
+    ScopeCheck -->|No - Out of Scope| OutOfScopeMsg["Graceful Refusal in Roman Urdu<br/>(Postgres logged)"]
+    ScopeCheck -->|Yes - In Scope| IG["Input Guardrails Check<br/>(empty/too_long/injection/abuse)"]
     
-    ScopeCheck -->|No - Out of Scope| OutOfScopeMsg["Graceful Refusal in Roman Urdu"]
-    ScopeCheck -->|Yes - In Scope| Agent["Pydantic AI RAG Agent (agent/agent.py)"]
+    IG -->|Blocked| BlockedMsg["Return Guardrail Security Alert<br/>(Redis logged)"]
+    IG -->|Allowed| Agent["Pydantic AI RAG Agent (agent/agent.py)"]
     
     Agent -->|1. Loads Context| Memory[(Redis Session Memory)]
     Agent -->|2. Agent Brain Pass: Analyzes Intent| ToolRouter{Which Tool is Needed?}

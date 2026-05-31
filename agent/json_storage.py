@@ -3,7 +3,6 @@ JSON-based storage for conversations and sessions.
 Replaces PostgreSQL for conversation storage.
 """
 
-import os
 import json
 from typing import List, Dict, Any, Optional
 from datetime import datetime

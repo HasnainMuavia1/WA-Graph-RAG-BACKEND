@@ -2,12 +2,10 @@
 Document embedding generation for vector search.
 """
 
-import os
 import asyncio
 import logging
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Optional
 from datetime import datetime
-import json
 
 from openai import RateLimitError, APIError
 from pathlib import Path
@@ -92,7 +90,7 @@ class EmbeddingGenerator:
                 
                 return response.data[0].embedding
                 
-            except RateLimitError as e:
+            except RateLimitError:
                 if attempt == self.max_retries - 1:
                     raise
                 
@@ -148,7 +146,7 @@ class EmbeddingGenerator:
                 
                 return [data.embedding for data in response.data]
                 
-            except RateLimitError as e:
+            except RateLimitError:
                 if attempt == self.max_retries - 1:
                     raise
                 

@@ -5,7 +5,6 @@ All queries go through Supabase's REST API using the anon key.
 RLS policies grant the anon role full access in this dev configuration.
 """
 
-import json
 import logging
 import os
 import uuid

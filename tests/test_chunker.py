@@ -4,7 +4,6 @@ Unit tests for document chunking (SimpleChunker and SemanticChunker).
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 

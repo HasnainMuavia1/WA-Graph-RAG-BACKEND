@@ -17,7 +17,6 @@ Unknown extensions fall back to plain-text reading.
 """
 
 import csv
-import io
 import json
 import logging
 from pathlib import Path
