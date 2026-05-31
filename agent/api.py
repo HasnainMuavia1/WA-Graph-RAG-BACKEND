@@ -33,7 +33,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi import APIRouter
 
 from .agent import rag_agent, AgentDependencies
@@ -58,6 +58,7 @@ from .tools import (
     graph_search_tool,
     hybrid_search_tool,
     list_documents_tool,
+    is_low_confidence as retrieval_low_confidence,
     VectorSearchInput,
     GraphSearchInput,
     HybridSearchInput,
@@ -72,9 +73,8 @@ APP_ENV = os.getenv("APP_ENV", "development")
 APP_HOST = os.getenv("APP_HOST", "0.0.0.0")
 APP_PORT = int(os.getenv("APP_PORT", 8000))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
-INGEST_INTERVAL_MINUTES = int(os.getenv("INGEST_INTERVAL_MINUTES", "15"))
 
-# ── LangChain session memory (no DB persistence) ──────────────────────────────
+# ── Redis-backed session memory (sliding window, no durable DB transcript) ─────
 from .session_memory import memory_manager  # noqa: E402
 
 logging.basicConfig(
@@ -140,9 +140,19 @@ app = FastAPI(
     openapi_url="/api/openapi.json",
 )
 
+# Explicit allow-list (never "*" with credentials — that combo is rejected by
+# browsers and is a security anti-pattern). Origins come from CORS_ALLOW_ORIGINS
+# (comma-separated); defaults cover the local Vite/React dev servers.
+_cors_origins = [
+    o.strip()
+    for o in os.getenv(
+        "CORS_ALLOW_ORIGINS", "http://localhost:5173,http://localhost:3000"
+    ).split(",")
+    if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -332,11 +342,9 @@ async def chat(request: ChatRequest, fastapi_req: Request):
         scope_verdict = await classify_query_scope(request.message)
 
         if scope_verdict == "out_of_scope":
-            decline_msg = (
-                "Maazrat, main sirf Uchenab University se mutaliq sawalat ke javab de sakta hoon "
-                "(jaise admissions, eligibility, fees, campus, hostel waghaira). "
-                "Python ya Google jaise general sawalat mere scope se bahar hain."
-            )
+            from .settings_store import get_config
+
+            decline_msg = (await get_config()).out_of_scope_message
             # Log turn to postgres messages
             try:
                 await db_utils.add_message(session_id, "user", request.message)
@@ -364,17 +372,12 @@ async def chat(request: ChatRequest, fastapi_req: Request):
         )
 
         # ── Extract search metrics and build provenance & debug metadata ──
-        from datetime import datetime
-
         chunks = getattr(deps, "retrieved_chunks", []) or []
         graph_facts = getattr(deps, "graph_facts", []) or []
         selected_tool = getattr(deps, "selected_retrieval_tool", "none") or "none"
 
         prov_sources = []
-        max_score = 0.0
         for chunk in chunks:
-            if chunk.score > max_score:
-                max_score = chunk.score
             meta = chunk.metadata or {}
             page_sec = (
                 meta.get("page") or meta.get("section") or meta.get("page_number")
@@ -423,8 +426,8 @@ async def chat(request: ChatRequest, fastapi_req: Request):
             },
         }
 
-        # ── Confidence Gate (Tier 2) ──
-        is_low_confidence = (len(chunks) == 0) or (max_score < 0.015)
+        # ── Confidence Gate (Tier 2) — stable cosine-similarity threshold ──
+        is_low_confidence = retrieval_low_confidence(chunks)
 
         if is_low_confidence:
             # Trigger background Celery task
@@ -483,11 +486,9 @@ async def chat_stream(request: ChatRequest, fastapi_req: Request):
                 scope_verdict = await classify_query_scope(request.message)
 
                 if scope_verdict == "out_of_scope":
-                    decline_msg = (
-                        "Maazrat, main sirf Uchenab University se mutaliq sawalat ke javab de sakta hoon "
-                        "(jaise admissions, eligibility, fees, campus, hostel waghaira). "
-                        "Python ya Google jaise general sawalat mere scope se bahar hain."
-                    )
+                    from .settings_store import get_config
+
+                    decline_msg = (await get_config()).out_of_scope_message
                     yield f"data: {json.dumps({'type': 'text', 'content': decline_msg})}\n\n"
                     # Log turns
                     try:
@@ -518,8 +519,7 @@ async def chat_stream(request: ChatRequest, fastapi_req: Request):
                 except Exception as search_exc:
                     logger.warning("Pre-check hybrid search failed: %s", search_exc)
 
-                max_score = max([c.score for c in pre_chunks]) if pre_chunks else 0.0
-                is_low_confidence = (len(pre_chunks) == 0) or (max_score < 0.015)
+                is_low_confidence = retrieval_low_confidence(pre_chunks)
 
                 if is_low_confidence:
                     # Suppress response. Return notified fallback.
@@ -534,8 +534,6 @@ async def chat_stream(request: ChatRequest, fastapi_req: Request):
                     yield f"data: {json.dumps({'type': 'text', 'content': fallback_msg})}\n\n"
 
                     # Log to Supabase
-                    from datetime import datetime
-
                     debug_metadata = {
                         "provenance": {
                             "sources": [],
@@ -633,8 +631,6 @@ async def chat_stream(request: ChatRequest, fastapi_req: Request):
                 save_conversation_turn(session_id, request.message, guarded)
 
                 # Assemble provenance and debug info
-                from datetime import datetime
-
                 chunks = deps.retrieved_chunks or []
                 graph_facts = deps.graph_facts or []
                 selected_tool = deps.selected_retrieval_tool or "hybrid_search"
@@ -1047,11 +1043,16 @@ async def s3_event_webhook(request: Request):
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error("Unhandled exception: %s", exc)
-    return ErrorResponse(
-        error=str(exc),
-        error_type=type(exc).__name__,
-        request_id=str(uuid.uuid4()),
+    # Log the full detail server-side; return a generic, non-leaking payload.
+    request_id = str(uuid.uuid4())
+    logger.error("Unhandled exception (request_id=%s): %s", request_id, exc)
+    return JSONResponse(
+        status_code=500,
+        content=ErrorResponse(
+            error="Internal server error",
+            error_type="InternalServerError",
+            request_id=request_id,
+        ).model_dump(),
     )
 
 
@@ -1064,12 +1065,14 @@ from .users_router import router as users_router  # noqa: E402
 from .whatsapp_router import router as whatsapp_router  # noqa: E402
 from .conversations_router import router as conversations_router  # noqa: E402
 from .dashboard_router import router as dashboard_router  # noqa: E402
+from .settings_router import router as settings_router  # noqa: E402
 
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(whatsapp_router)
 app.include_router(conversations_router)
 app.include_router(dashboard_router)
+app.include_router(settings_router)
 
 
 # ── Dev server ────────────────────────────────────────────────────────────────

@@ -399,10 +399,24 @@ def _get_s3_client():
 
 
 @router.post("/users/{user_id}/avatar")
-async def upload_user_avatar(user_id: str, file: UploadFile = File(...)):
-    """Upload user avatar (saved locally + uploaded to S3)."""
+async def upload_user_avatar(
+    user_id: str,
+    file: UploadFile = File(...),
+    current_user=Depends(get_current_active_user),
+):
+    """Upload user avatar (saved locally + uploaded to S3).
+
+    A user may only set their own avatar; admins may set anyone's.
+    """
     import os
     from pathlib import Path
+
+    if current_user["id"] != user_id and "admin" not in current_user.get("roles", []):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Reject non-image uploads (defense-in-depth: avatars are images only).
+    if file.content_type and not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Avatar must be an image file")
 
     try:
         # Verify user exists
@@ -472,9 +486,11 @@ async def upload_user_avatar(user_id: str, file: UploadFile = File(...)):
             "message": "Avatar uploaded successfully",
             "avatar_url": f"/api/v1/users/{user_id}/avatar",
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Avatar upload failed: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Avatar upload failed")
 
 
 @router.get("/users/{user_id}/avatar")

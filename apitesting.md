@@ -18,6 +18,10 @@
 8. [Users](#8-users)
 9. [Roles](#9-roles)
 10. [Permissions](#10-permissions)
+11. [WhatsApp (Cloud API)](#11-whatsapp-cloud-api)
+12. [Guardrails](#12-guardrails-applies-to-all-chat--whatsapp)
+13. [Agent Conversations](#13-agent-conversations-whatsapp-inbox)
+14. [Agent Settings (editable system prompt / scope)](#14-agent-settings)
 
 ---
 
@@ -114,6 +118,20 @@ Non-streaming chat. The agent retrieves context, runs tools (vector search, grap
 | `user_id`    | string / null   | No       | Used for private-document access control           |
 | `search_type`| string          | No       | `"vector"`, `"hybrid"`, `"graph"` (default: hybrid)|
 | `metadata`   | object          | No       | Arbitrary key-value pairs forwarded to the session |
+
+**Pipeline behaviour (both `/chat` and `/chat/stream`):**
+
+1. **Scope check** — an editable classifier (`scope_description`, toggled by
+   `enforce_scope`; see [§14](#14-agent-settings)) declines out-of-scope questions
+   with the configured refusal message.
+2. **Input guardrails** — injection / abuse / length checks (fail-closed).
+3. **Retrieval + confidence gate** — answers are grounded only when the top
+   **pgvector cosine similarity ≥ `CONFIDENCE_MIN_SIMILARITY` (0.25)**. Below that,
+   the reply is suppressed and an admin alert is queued (Celery). *(This replaced
+   the old fused-RRF `< 0.015` gate, which could not distinguish relevant from
+   off-domain queries.)*
+4. **Output guardrails** — system-prompt leak scrub, PII/CNIC redaction, and
+   Roman-Urdu enforcement.
 
 **Curl**
 
@@ -704,7 +722,8 @@ Global unhandled exceptions return:
 
 | Variable                  | Default        | Description                                    |
 |---------------------------|----------------|------------------------------------------------|
-| `DATABASE_URL`            | —              | PostgreSQL asyncpg connection string           |
+| `SUPABASE_URL`            | —              | Supabase project URL (PostgREST + pgvector)    |
+| `SUPABASE_ANON_KEY`       | —              | Supabase anon key (the app's DB credential)    |
 | `NEO4J_URI`               | —              | Neo4j Aura bolt URI (`neo4j+s://`)             |
 | `NEO4J_USERNAME`          | —              | Neo4j username                                 |
 | `NEO4J_PASSWORD`          | —              | Neo4j password                                 |
@@ -713,7 +732,11 @@ Global unhandled exceptions return:
 | `S3_PRIVATE_BUCKET`       | —              | Name of the private S3 bucket                  |
 | `S3_PUBLIC_BUCKET`        | —              | Name of the public S3 bucket                   |
 | `INGEST_INTERVAL_MINUTES` | `15`           | Auto-ingest polling interval                   |
-| `JWT_SECRET_KEY`          | —              | Secret for signing JWT tokens                  |
+| `CONFIDENCE_MIN_SIMILARITY` | `0.25`       | Min top pgvector cosine similarity to ground an answer (confidence gate) |
+| `GRAPH_EXTRACTION_ENABLED`| `true`         | LLM entity/fact extraction into Neo4j during ingest |
+| `ENFORCE_ROMAN_URDU`      | `true`         | Transliterate Devanagari output → Roman Urdu   |
+| `CORS_ALLOW_ORIGINS`      | `localhost:5173,3000` | Comma-separated CORS allow-list (never `*`) |
+| `JWT_SECRET_KEY`          | —              | Secret for signing JWT (required in non-dev)   |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `60`       | Access token lifetime in minutes               |
 | `REFRESH_TOKEN_EXPIRE_DAYS`   | `7`        | Refresh token lifetime in days                 |
 | `APP_PORT`                | `8000`         | Server port                                    |
@@ -1441,3 +1464,75 @@ Reset a conversation's unread counter.
 curl -s -X POST -H "Authorization: Bearer $TOKEN" \
   http://localhost:8058/api/v1/conversations/923453241015/read
 ```
+
+---
+
+## 14. Agent Settings
+
+The assistant's identity, system prompt, and answer scope are runtime-editable
+(stored in Supabase `app_settings`, row `id='agent'`). Changes propagate to all
+api/worker processes within ~30s (cache TTL) — no redeploy. Reading requires any
+active user; writing requires the `admin` role.
+
+These settings drive: the agent's **system prompt** (dynamic), the off-topic
+**scope classifier** (`scope_description` + `enforce_scope`), and the **refusal
+message** returned for out-of-scope questions on both web chat and WhatsApp.
+
+### 14.1 GET `/api/v1/settings/agent`
+
+| Field  | Value                          |
+|--------|--------------------------------|
+| Method | GET                            |
+| Auth   | Bearer (active user)           |
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8058/api/v1/settings/agent | jq
+```
+
+**Response — 200 OK**
+
+```json
+{
+  "settings": {
+    "assistant_name": "Uchenab Assistant",
+    "system_prompt": "You are 'Uchenab Assistant', ...",
+    "scope_description": "university matters: admissions, fees, ...",
+    "enforce_scope": true,
+    "out_of_scope_message": "Maazrat, main sirf in mawzuaat ..."
+  }
+}
+```
+
+### 14.2 PUT `/api/v1/settings/agent`
+
+Update any subset of fields (admin only). Omitted fields are unchanged.
+
+| Field  | Value                          |
+|--------|--------------------------------|
+| Method | PUT                            |
+| Auth   | Bearer (**admin role**)        |
+| Content-Type | `application/json`       |
+
+| Field                  | Type    | Notes                                   |
+|------------------------|---------|-----------------------------------------|
+| `assistant_name`       | string  | ≤ 120 chars                             |
+| `system_prompt`        | string  | ≤ 20000 chars                           |
+| `scope_description`    | string  | ≤ 4000 chars; topics allowed            |
+| `enforce_scope`        | boolean | `false` = answer anything the prompt allows |
+| `out_of_scope_message` | string  | ≤ 2000 chars; refusal text              |
+
+```bash
+curl -s -X PUT -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "assistant_name": "CineMENA Assistant",
+    "system_prompt": "You are the CineMENA helpdesk ...",
+    "scope_description": "CineMENA plans, phasing, watchlists, and pricing",
+    "enforce_scope": true
+  }' \
+  http://localhost:8058/api/v1/settings/agent | jq
+```
+
+**Response — 200 OK** → `{ "status": "ok", "settings": { ... } }`
+**403** if the caller is not an admin · **400** if no fields are supplied.

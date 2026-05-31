@@ -229,11 +229,9 @@ async def _process_whatsapp_message(
     scope_verdict = await classify_query_scope(user_text)
 
     if scope_verdict == "out_of_scope":
-        reply = (
-            "Maazrat, main sirf Uchenab University se mutaliq sawalat ke javab de sakta hoon "
-            "(jaise admissions, fees, eligibility, hostel, courses waghaira). "
-            "Python ya Google jaise general sawalat mere scope se bahar hain."
-        )
+        from agent.settings_store import get_config
+
+        reply = (await get_config()).out_of_scope_message
         if transcribed:
             reply = f'🎙️ I heard: "{user_text}"\n\n{reply}'
         await whatsapp_client.send_text(contact_wa_id, reply)
@@ -264,10 +262,7 @@ async def _process_whatsapp_message(
     selected_tool = getattr(deps, "selected_retrieval_tool", "none") or "none"
 
     prov_sources = []
-    max_score = 0.0
     for chunk in chunks:
-        if chunk.score > max_score:
-            max_score = chunk.score
         meta = chunk.metadata or {}
         page_sec = meta.get("page") or meta.get("section") or meta.get("page_number")
         page_sec_str = f"Page/Section {page_sec}" if page_sec else None
@@ -314,15 +309,18 @@ async def _process_whatsapp_message(
         },
     }
 
-    # ── Confidence Gate (Tier 2) ─────────────────────────────────────────────
-    is_low_confidence = (len(chunks) == 0) or (max_score < 0.015)
+    # ── Confidence Gate (Tier 2) — stable cosine-similarity threshold ─────────
+    from agent.tools import is_low_confidence as _gate, max_cosine_similarity
+
+    top_cosine = max_cosine_similarity(chunks)
+    is_low_confidence = _gate(chunks)
 
     if is_low_confidence:
         # Suppress response to student. Celery alert and admin notification only.
         logger.warning(
-            "Low confidence detected for university query '%s' (max_score=%f). Suppressing reply.",
+            "Low confidence for query '%s' (top_cosine=%.3f). Suppressing reply.",
             user_text,
-            max_score,
+            top_cosine,
         )
 
         # Trigger background Celery alert
@@ -342,7 +340,7 @@ async def _process_whatsapp_message(
             )
         except Exception as exc:
             logger.warning("Failed to persist outbound system alert: %s", exc)
-        return {"status": "low_confidence_suppressed", "max_score": max_score}
+        return {"status": "low_confidence_suppressed", "top_cosine": top_cosine}
 
     # ── Normal RAG Response ──────────────────────────────────────────────────
     await whatsapp_client.send_text(contact_wa_id, reply)

@@ -3,9 +3,9 @@ Tools for the Pydantic AI agent.
 """
 
 import logging
+import os
 from typing import List, Dict, Any, Optional
 from datetime import datetime
-import asyncio
 
 from pydantic import BaseModel, Field
 from pathlib import Path
@@ -19,7 +19,7 @@ from .db_utils import (
     list_documents,
     get_document_chunks,
 )
-from .graph_utils import search_knowledge_graph, get_entity_relationships, graph_client
+from .graph_utils import search_knowledge_graph
 from .models import ChunkResult, GraphSearchResult, DocumentMetadata
 from .providers import get_embedding_client, get_embedding_model
 
@@ -29,6 +29,23 @@ logger = logging.getLogger(__name__)
 
 embedding_client = get_embedding_client()
 EMBEDDING_MODEL = get_embedding_model()
+
+# Confidence gate: minimum top pgvector cosine similarity for a retrieval to be
+# considered grounded. Stable across retrieval paths (unlike fused RRF scores).
+# text-embedding-3-large: relevant chunks ~0.4-0.6, noise ~0.1-0.25.
+CONFIDENCE_MIN_SIMILARITY = float(os.getenv("CONFIDENCE_MIN_SIMILARITY", "0.25"))
+
+
+def max_cosine_similarity(chunks: List["ChunkResult"]) -> float:
+    """Highest pgvector cosine similarity among retrieved chunks (0.0 if none)."""
+    if not chunks:
+        return 0.0
+    return max((getattr(c, "vector_similarity", 0.0) or 0.0) for c in chunks)
+
+
+def is_low_confidence(chunks: List["ChunkResult"]) -> bool:
+    """True when retrieval is too weak to ground an answer (gate it / escalate)."""
+    return max_cosine_similarity(chunks) < CONFIDENCE_MIN_SIMILARITY
 
 
 async def generate_embedding(text: str) -> List[float]:
@@ -97,21 +114,6 @@ class DocumentListInput(BaseModel):
     )
 
 
-class EntityRelationshipInput(BaseModel):
-    """Input for entity relationship query."""
-
-    entity_name: str = Field(..., description="Name of the entity")
-    depth: int = Field(default=2, description="Maximum traversal depth")
-
-
-class EntityTimelineInput(BaseModel):
-    """Input for entity timeline query."""
-
-    entity_name: str = Field(..., description="Name of the entity")
-    start_date: Optional[str] = Field(None, description="Start date (ISO format)")
-    end_date: Optional[str] = Field(None, description="End date (ISO format)")
-
-
 # Tool Implementation Functions
 async def vector_search_tool(input_data: VectorSearchInput) -> List[ChunkResult]:
     """
@@ -139,6 +141,7 @@ async def vector_search_tool(input_data: VectorSearchInput) -> List[ChunkResult]
                 document_id=str(r["document_id"]),
                 content=r["content"],
                 score=r["similarity"],
+                vector_similarity=float(r.get("similarity", 0.0) or 0.0),
                 metadata=r["metadata"],
                 document_title=r["document_title"],
                 document_source=r["document_source"],
@@ -227,6 +230,11 @@ async def hybrid_search_tool(input_data: HybridSearchInput) -> List[ChunkResult]
                 document_id=str(r["document_id"]),
                 content=r["content"],
                 score=r.get(score_key, r.get("similarity", 0.0)),
+                # cosine_similarity from the RRF retriever; `similarity` from the
+                # SQL fallback — both are the raw pgvector cosine.
+                vector_similarity=float(
+                    r.get("cosine_similarity", r.get("similarity", 0.0)) or 0.0
+                ),
                 metadata=r.get("metadata", {}),
                 document_title=r["document_title"],
                 document_source=r["document_source"],
@@ -296,114 +304,3 @@ async def list_documents_tool(input_data: DocumentListInput) -> List[DocumentMet
     except Exception as e:
         logger.error(f"Document listing failed: {e}")
         return []
-
-
-async def get_entity_relationships_tool(
-    input_data: EntityRelationshipInput,
-) -> Dict[str, Any]:
-    """
-    Get relationships for an entity.
-
-    Args:
-        input_data: Entity relationship parameters
-
-    Returns:
-        Entity relationships
-    """
-    try:
-        return await get_entity_relationships(
-            entity=input_data.entity_name, depth=input_data.depth
-        )
-
-    except Exception as e:
-        logger.error(f"Entity relationship query failed: {e}")
-        return {
-            "central_entity": input_data.entity_name,
-            "related_entities": [],
-            "relationships": [],
-            "depth": input_data.depth,
-            "error": str(e),
-        }
-
-
-async def get_entity_timeline_tool(
-    input_data: EntityTimelineInput,
-) -> List[Dict[str, Any]]:
-    """
-    Get timeline of facts for an entity.
-
-    Args:
-        input_data: Timeline query parameters
-
-    Returns:
-        Timeline of facts
-    """
-    try:
-        # Parse dates if provided
-        start_date = None
-        end_date = None
-
-        if input_data.start_date:
-            start_date = datetime.fromisoformat(input_data.start_date)
-        if input_data.end_date:
-            end_date = datetime.fromisoformat(input_data.end_date)
-
-        # Get timeline from graph
-        timeline = await graph_client.get_entity_timeline(
-            entity_name=input_data.entity_name, start_date=start_date, end_date=end_date
-        )
-
-        return timeline
-
-    except Exception as e:
-        logger.error(f"Entity timeline query failed: {e}")
-        return []
-
-
-# Combined search function for agent use
-async def perform_comprehensive_search(
-    query: str, use_vector: bool = True, use_graph: bool = True, limit: int = 10
-) -> Dict[str, Any]:
-    """
-    Perform a comprehensive search using multiple methods.
-
-    Args:
-        query: Search query
-        use_vector: Whether to use vector search
-        use_graph: Whether to use graph search
-        limit: Maximum results per search type (only applies to vector search)
-
-    Returns:
-        Combined search results
-    """
-    results = {
-        "query": query,
-        "vector_results": [],
-        "graph_results": [],
-        "total_results": 0,
-    }
-
-    tasks = []
-
-    if use_vector:
-        tasks.append(vector_search_tool(VectorSearchInput(query=query, limit=limit)))
-
-    if use_graph:
-        tasks.append(graph_search_tool(GraphSearchInput(query=query)))
-
-    if tasks:
-        search_results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        if use_vector and not isinstance(search_results[0], Exception):
-            results["vector_results"] = search_results[0]
-
-        if use_graph:
-            graph_idx = 1 if use_vector else 0
-            if not isinstance(search_results[graph_idx], Exception):
-                results["graph_results"] = search_results[graph_idx]
-
-    results["total_results"] = len(results["vector_results"]) + len(
-        results["graph_results"]
-    )
-
-    return results

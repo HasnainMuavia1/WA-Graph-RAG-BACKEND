@@ -224,12 +224,20 @@ async def apply_output_guardrails(text: str) -> str:
 
 
 async def classify_query_scope(query: str) -> str:
-    """Classify if the user's query is within the university's scope or completely out-of-scope.
+    """Classify whether the query is within the assistant's configured scope.
 
-    If the query is out of scope (e.g. asking about Python, Google, general trivia),
-    returns 'out_of_scope'. Otherwise returns 'in_scope'.
+    The scope is admin-editable (``app_settings.scope_description``) and can be
+    switched off entirely (``enforce_scope=false``), in which case every query is
+    treated as in-scope. Returns 'out_of_scope' or 'in_scope'.
     """
     try:
+        from .settings_store import get_config
+
+        config = await get_config()
+        if not config.enforce_scope:
+            return "in_scope"
+        scope_desc = config.scope_description
+
         from .providers import get_cached_llm, LLM_CHOICE
 
         client = get_cached_llm()
@@ -240,11 +248,11 @@ async def classify_query_scope(query: str) -> str:
                 {
                     "role": "system",
                     "content": (
-                        "You are an AI scope classifier for Uchenab University helpdesk.\n"
-                        "Classify if the user's message is asking about university-related matters "
-                        "(e.g., admissions, courses, eligibility, fees, campus, hostel, policies) or if it's "
-                        "completely out-of-scope (e.g., programming languages like Python/Java, tech companies like Google/Apple, "
-                        "general trivia, writing code, politics, recipes, or unrelated chat).\n"
+                        "You are a scope classifier for an AI assistant.\n"
+                        f"The assistant ONLY answers questions about: {scope_desc}.\n"
+                        "If the user's message is about that scope, reply IN_SCOPE. "
+                        "If it is clearly unrelated (general trivia, unrelated chit-chat, "
+                        "topics outside the scope above), reply OUT_OF_SCOPE.\n"
                         "Respond with ONLY one word: 'IN_SCOPE' or 'OUT_OF_SCOPE'."
                     ),
                 },

@@ -52,38 +52,7 @@ async def test_connection() -> bool:
         return False
 
 
-# ── Session management ────────────────────────────────────────────────────────
-
-
-async def create_session(
-    user_id: Optional[str] = None,
-    metadata: Optional[Dict[str, Any]] = None,
-) -> str:
-    session_id = str(uuid.uuid4())
-    await (
-        _client.table("sessions")
-        .insert(
-            {
-                "id": session_id,
-                "user_id": user_id,
-                "metadata": metadata or {},
-            }
-        )
-        .execute()
-    )
-    return session_id
-
-
-async def get_session(session_id: str) -> Optional[Dict[str, Any]]:
-    result = (
-        await _client.table("sessions")
-        .select("*")
-        .eq("id", session_id)
-        .limit(1)
-        .execute()
-    )
-    rows = result.data or []
-    return rows[0] if rows else None
+# ── Message persistence (web-chat transcript) ─────────────────────────────────
 
 
 async def add_message(
@@ -113,20 +82,6 @@ async def add_message(
         .execute()
     )
     return message_id
-
-
-async def get_session_messages(
-    session_id: str, limit: int = 10
-) -> List[Dict[str, Any]]:
-    result = await (
-        _client.table("messages")
-        .select("*")
-        .eq("session_id", session_id)
-        .order("created_at", desc=True)
-        .limit(limit)
-        .execute()
-    )
-    return list(reversed(result.data or []))
 
 
 # ── Search ────────────────────────────────────────────────────────────────────
@@ -359,18 +314,3 @@ async def delete_document(document_id: str) -> None:
     await delete_document_chunks(document_id)
     # Delete document
     await _client.table("documents").delete().eq("id", document_id).execute()
-
-
-# ── Helpers (kept for compatibility) ─────────────────────────────────────────
-
-
-def _build_access_filter(user_id: Optional[str]) -> str:
-    """Kept for any callers that still reference it; not used internally."""
-    from .access_control import get_user_access_filter
-
-    level = get_user_access_filter(user_id)
-    if level is None:
-        return ""
-    if level == "public":
-        return "WHERE d.access_level = 'public'"
-    return ""

@@ -5,7 +5,7 @@ Both the FastAPI `/chat` endpoint and the WhatsApp Celery worker need to:
   1. resolve/create a session,
   2. prepend the sliding-window conversation history,
   3. run the RAG agent,
-  4. persist the turn back into LangChain memory.
+  4. persist the turn back into the Redis-backed session memory.
 
 Keeping it here (instead of in `api.py`) lets the worker process run a turn
 without importing the whole FastAPI application.

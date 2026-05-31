@@ -25,8 +25,8 @@ The RAG pipeline retrieves and fuses context from both vector search and structu
 
 ```mermaid
 graph TD
-    User([User Query]) --> ScopeCheck{Is Query In-Scope?<br/>agent/guardrails.py}
-    ScopeCheck -->|No - Out of Scope| OutOfScopeMsg["Graceful Refusal in Roman Urdu<br/>(Postgres logged)"]
+    User([User Query]) --> ScopeCheck{"In-Scope? (editable scope_description;<br/>skipped if enforce_scope=false)"}
+    ScopeCheck -->|No - Out of Scope| OutOfScopeMsg["Editable refusal message<br/>(out_of_scope_message, Postgres logged)"]
     ScopeCheck -->|Yes - In Scope| IG["Input Guardrails Check<br/>(empty/too_long/injection/abuse)"]
     
     IG -->|Blocked| BlockedMsg["Return Guardrail Security Alert<br/>(Redis logged)"]
@@ -60,8 +60,8 @@ graph TD
     RERANK --> FusedDocContext["Fused Documents Text Context"]
     Neo4jSearch --> GraphContext["Structured Entity Facts"]
     
-    %% Relevance gate
-    FusedDocContext --> ConfGate{Relevance Max Score >= 0.015?}
+    %% Relevance gate (stable pgvector cosine similarity, not fused rank score)
+    FusedDocContext --> ConfGate{"Top cosine similarity >= 0.25?<br/>(CONFIDENCE_MIN_SIMILARITY)"}
     GraphContext --> ConfGate
     
     %% Low Confidence branch
@@ -73,8 +73,9 @@ graph TD
     ChannelSplit -->|Web Chat| WebFallback["Return Polite Support Escalation Refusal"]
     
     %% High Confidence branch
-    ConfGate -->|Yes - High Confidence| PromptBuilder["System Prompt Generator"]
+    ConfGate -->|Yes - High Confidence| PromptBuilder["System Prompt Generator<br/>(editable: app_settings → settings_store)"]
     Memory --> PromptBuilder
+    Settings[("app_settings:<br/>system_prompt, scope")] --> PromptBuilder
     
     PromptBuilder --> LLM["OpenAI GPT-4o-mini / GPT-4o"]
     LLM --> RawOutput["Raw Agent Response"]
@@ -171,8 +172,8 @@ graph TD
         Webhook --> Celery["Celery Task (process_whatsapp_message)"]
         Celery --> RAG["AI Agent (Autonomous Model)"]
         
-        %% Splitting based on confidence
-        RAG --> ScoreCheck{Confidence Score Check}
+        %% Splitting based on confidence (top pgvector cosine >= 0.25)
+        RAG --> ScoreCheck{Top cosine similarity >= 0.25?}
         ScoreCheck -->|Strong| SaveAuto["Save Message (sender = agent, direction = outbound)"]
         ScoreCheck -->|Weak / Low Confidence| AlertAdmin["Post Warning Banner to Admin Inbox + Suppress Reply"]
     end
@@ -212,7 +213,8 @@ graph TD
     HashCheck -->|No - New/Changed| Embed["Generate OpenAI vector embeddings"]
     
     Embed --> Postgres[("PostgreSQL (pgvector chunks upsert)")]
-    Embed --> Neo4j[("Neo4j Knowledge Graph (Cypher nodes & links)")]
+    Embed --> GraphBuild["graph_builder: LLM entity/fact extraction"]
+    GraphBuild --> Neo4j[("Neo4j: (:Entity)-[:HAS_FACT]->(:Fact)-[:FROM_CHUNK]->(:Chunk)<br/>full-text factIndex + chunkIndex")]
 ```
 
 ---

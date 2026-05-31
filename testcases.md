@@ -1,11 +1,11 @@
 # Test Cases Documentation
 
 > Test suite: `tests/` | Runner: `pytest` | Async mode: `asyncio_mode = auto`
-> Total: **186 tests** — 0 failures, 0 skipped
+> Total: **202 tests** — 0 failures, 0 skipped
 
-Run all tests:
+Run all tests (Docker — the supported workflow; hermetic, no local venv):
 ```bash
-.venv/bin/python -m pytest tests/ -v
+docker run --rm -v "$(pwd)":/app -w /app uchenab-backend:latest python -m pytest -q
 ```
 
 ---
@@ -333,51 +333,35 @@ get_document_by_source(source)
 |87 | `test_returns_document_metadata`   | `list_documents` → 1 document row      | 1 `DocumentMetadata`       | PASS   |
 |88 | `test_returns_empty_list_on_error` | `list_documents` raises `RuntimeError` | `results == []`            | PASS   |
 
-### 7.6 Entity Relationship Tool
+### 7.6 Confidence Gate (cosine-similarity based)
 
-**Class:** `TestEntityRelationshipTool`
+**Class:** `TestConfidenceGate` — verifies `tools.is_low_confidence` /
+`max_cosine_similarity`, which gate answers on the stable pgvector cosine
+similarity (`CONFIDENCE_MIN_SIMILARITY`, default 0.25) instead of the old
+rank-based RRF score.
 
-| # | Test Name                              | Mocks                                      | Expected Output               | Status |
-|---|----------------------------------------|--------------------------------------------|-------------------------------|--------|
-|89 | `test_returns_entity_data`             | `get_entity_relationships` → dict          | Dict returned unchanged       | PASS   |
-|90 | `test_returns_error_dict_on_failure`   | `get_entity_relationships` raises error    | Dict with `"error"` key       | PASS   |
-
-### 7.7 Comprehensive Search
-
-**Class:** `TestPerformComprehensiveSearch`
-
-| # | Test Name                     | Input                                | Expected Output                          | Status |
-|---|-------------------------------|--------------------------------------|------------------------------------------|--------|
-|91 | `test_both_search_types_used` | `use_vector=True, use_graph=True`    | Both results populated, total > 0        | PASS   |
-|92 | `test_vector_only`            | `use_vector=True, use_graph=False`   | `graph_results == []`                    | PASS   |
-|93 | `test_graph_only`             | `use_vector=False, use_graph=True`   | `vector_results == []`                   | PASS   |
+| # | Test Name                         | Input                                  | Expected Output            | Status |
+|---|-----------------------------------|----------------------------------------|----------------------------|--------|
+|89 | `test_max_cosine_empty_is_zero`   | `[]`                                   | `0.0`                      | PASS   |
+|90 | `test_max_cosine_picks_highest`   | chunks cos 0.20/0.55/0.31              | `0.55`                     | PASS   |
+|91 | `test_low_confidence_when_no_chunks` | `[]`                                | `is_low_confidence == True`| PASS   |
+|92 | `test_low_confidence_below_threshold` | top cosine 0.10 (off-domain)       | `True` (suppress)          | PASS   |
+|93 | `test_high_confidence_above_threshold`| top cosine ≥ gate+0.2 (relevant)   | `False` (answer)           | PASS   |
+|94 | `test_threshold_is_sane`          | —                                      | `0.1 < gate < 0.4`         | PASS   |
 
 ---
 
-## 8. JSON Storage
+## 8. Agent Settings Store (editable system prompt / scope)
 
-**File:** `tests/test_json_storage.py`
-
-### 8.1 Session Persistence
-
-**Class:** `TestSessionStorage`
+**File:** `tests/test_settings_store.py` — the runtime-editable assistant config
+(`agent/settings_store.py`) backing `PUT /api/v1/settings/agent`.
 
 | # | Test Name                              | Input                             | Expected Output                      | Status |
 |---|----------------------------------------|-----------------------------------|--------------------------------------|--------|
-|94 | `test_create_session_returns_id`       | `user_id="user1"`                 | Returns non-empty string session ID  | PASS   |
-|95 | `test_get_session_returns_data`        | Created session ID                | Dict with `id`, `user_id`            | PASS   |
-|96 | `test_get_nonexistent_session`         | Random UUID                       | `None`                               | PASS   |
-|97 | `test_add_and_retrieve_messages`       | 2 messages added                  | Both returned in order               | PASS   |
-|98 | `test_message_count_limit`            | `limit=1` on 3 messages           | Only 1 message returned              | PASS   |
-
-### 8.2 Export
-
-**Class:** `TestExportConversation`
-
-| # | Test Name                          | Input                       | Expected Output                  | Status |
-|---|------------------------------------|-----------------------------|----------------------------------|--------|
-|99 | `test_export_creates_file`         | Valid session with messages | JSON file created on disk        | PASS   |
-|100| `test_export_default_filename`     | No `filename` arg           | Auto-generated filename used     | PASS   |
+|95 | `test_defaults_are_university`         | `AgentConfig()`                   | Default name/prompt/scope, `enforce_scope=True` | PASS |
+|96 | `test_full_row_maps_through`           | Full DB row (CineMENA)            | All fields mapped; `enforce_scope=False` | PASS |
+|97 | `test_blank_fields_fall_back_to_defaults` | Empty/None fields              | Falls back to built-in defaults      | PASS   |
+|98 | `test_returns_default_without_client`  | No Supabase client                | Returns defaults, never raises       | PASS   |
 
 ---
 
@@ -387,27 +371,33 @@ get_document_by_source(source)
 
 | # | Test Name                                 | Input                                | Expected Output           | Status |
 |---|-------------------------------------------|--------------------------------------|---------------------------|--------|
-|101| `test_private_bucket_assigns_private`     | `bucket_type="private"`              | `"private"`               | PASS   |
-|102| `test_public_bucket_assigns_public`       | `bucket_type="public"`               | `"public"`                | PASS   |
-|103| `test_admin_user_can_access_private`      | `user_id` in `ADMIN_USERS`           | `can_access == True`      | PASS   |
-|104| `test_private_user_can_access_private`    | `user_id` in `PRIVATE_DOCUMENT_USERS`| `can_access == True`      | PASS   |
-|105| `test_anonymous_cannot_access_private`    | `user_id=None, access_level="private"` | `can_access == False`   | PASS   |
-|106| `test_admin_filter_is_none`               | Admin `user_id`                      | Filter `== None` (no restriction) | PASS |
-|107| `test_private_user_filter_is_all`         | Private-role `user_id`               | Filter `== "all"`         | PASS   |
-|108| `test_anonymous_filter_is_public`         | `user_id=None`                       | Filter `== "public"`      | PASS   |
+|99 | `test_private_bucket_assigns_private`     | `bucket_type="private"`              | `"private"`               | PASS   |
+|100| `test_public_bucket_assigns_public`       | `bucket_type="public"`               | `"public"`                | PASS   |
+|101| `test_admin_user_can_access_private`      | `user_id` in `ADMIN_USERS`           | `can_access == True`      | PASS   |
+|102| `test_private_user_can_access_private`    | `user_id` in `PRIVATE_DOCUMENT_USERS`| `can_access == True`      | PASS   |
+|103| `test_anonymous_cannot_access_private`    | `user_id=None, access_level="private"` | `can_access == False`   | PASS   |
+
+> Note: `get_user_access_filter` (and the SQL-string `_build_access_filter`) were
+> removed during cleanup — all access filtering now flows through
+> `can_access_document` / the PostgREST `access_level` predicate.
 
 ---
 
-## 10. Graph Utils
+## 10. Knowledge Graph (Neo4j)
 
-**File:** `tests/test_graph_utils.py`
+Graph retrieval (`agent/graph_utils.search_knowledge_graph`) and graph building
+(`ingestion/graph_builder.build_knowledge_graph`) talk to a live Neo4j instance,
+so they are exercised via **integration scripts** rather than mocked unit tests:
 
-| # | Test Name                                  | Mocks                                     | Expected Output                    | Status |
-|---|--------------------------------------------|-------------------------------------------|------------------------------------|--------|
-|109| `test_search_returns_facts`                | Neo4j session returns 2 records           | 2 fact dicts returned              | PASS   |
-|110| `test_search_returns_empty_on_failure`     | Neo4j raises exception                    | `[]`                               | PASS   |
-|111| `test_entity_relationships_structure`      | Neo4j session returns entity + edges      | Dict with `related_entities` key   | PASS   |
-|112| `test_entity_relationships_empty_entity`   | Unknown entity, empty result              | Dict with empty lists              | PASS   |
+| Check | How | Expected |
+|-------|-----|----------|
+| Entity/fact extraction writes nodes | `scripts/backfill_graph.py` | `:Entity`/`:Fact`/`:Chunk` nodes + `HAS_FACT`/`FROM_CHUNK` rels created |
+| Fact search returns results | `search_knowledge_graph("...")` | Non-empty fact list; falls back to `:Chunk` keyword search when no fact matches |
+| Lucene safety | query with operators (`:`, `(`, `*`) | Sanitised; no Cypher/Lucene error |
+
+> Regression fixed: `session.run(cypher, query=...)` collided with Neo4j's
+> positional `query` arg, so graph search had silently returned `[]`. Parameters
+> are now passed as a dict: `session.run(cypher, {"query": safe})`.
 
 ---
 
@@ -551,19 +541,37 @@ Live tests verified against real Supabase (see `e2e_test.py`).
 
 ## Running Specific Test Subsets
 
+All commands run inside the backend image (`-v "$(pwd)":/app` mounts the live
+source; do **not** use `docker compose run`, which injects the production `.env`
+and breaks hermetic tests).
+
 ```bash
 # Single test class
-.venv/bin/python -m pytest tests/test_retriever.py::TestRRFFusion -v
+docker run --rm -v "$(pwd)":/app -w /app uchenab-backend:latest \
+  python -m pytest tests/test_retriever.py::TestRRFFusion -v
 
 # Single test
-.venv/bin/python -m pytest tests/test_ingest_service.py::TestIngestDocument::test_changed_document_updated -v
+docker run --rm -v "$(pwd)":/app -w /app uchenab-backend:latest \
+  python -m pytest tests/test_tools.py::TestConfidenceGate -v
 
 # All ingest-related tests
-.venv/bin/python -m pytest tests/test_ingest_service.py -v
+docker run --rm -v "$(pwd)":/app -w /app uchenab-backend:latest \
+  python -m pytest tests/test_ingest_service.py -v
 
-# All retriever tests
-.venv/bin/python -m pytest tests/test_retriever.py -v
+# Confidence gate + settings store (this round's additions)
+docker run --rm -v "$(pwd)":/app -w /app uchenab-backend:latest \
+  python -m pytest tests/test_tools.py tests/test_settings_store.py -v
+```
 
-# All tests with live output (useful for async debugging)
-.venv/bin/python -m pytest tests/ -v -s
+## Retrieval / RAG evaluation (live)
+
+Beyond unit tests, retrieval quality is measured end-to-end against the live
+knowledge base:
+
+```bash
+# Recall@1/@5, MRR, mean cosine, and the confidence-gate confusion matrix
+docker run --rm -v "$(pwd)":/app -w /app uchenab-backend:latest python scripts/eval_rag.py
+
+# Rebuild the Neo4j entity/fact graph from stored chunks
+docker run --rm -v "$(pwd)":/app -w /app uchenab-backend:latest python scripts/backfill_graph.py
 ```

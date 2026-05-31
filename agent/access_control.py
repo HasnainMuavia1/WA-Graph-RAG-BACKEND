@@ -37,30 +37,3 @@ def can_access_document(user_id: Optional[str], access_level: str) -> bool:
         if u.strip()
     }
     return user_id in private_users
-
-
-def get_user_access_filter(user_id: Optional[str]) -> Optional[str]:
-    """
-    Return the SQL/Cypher access-level filter string appropriate for the user.
-
-    Returns None when the user can see everything (admin), otherwise returns
-    "public" or a compound filter including the user's private access.
-    """
-    if not user_id:
-        return "public"
-
-    admin_users = {
-        u.strip() for u in os.getenv("ADMIN_USERS", "").split(",") if u.strip()
-    }
-    if user_id in admin_users:
-        return None  # no filter — see all documents
-
-    private_users = {
-        u.strip()
-        for u in os.getenv("PRIVATE_DOCUMENT_USERS", "").split(",")
-        if u.strip()
-    }
-    if user_id in private_users:
-        return "all"  # can see public and private
-
-    return "public"

@@ -5,13 +5,13 @@ WhatsApp voice notes arrive as OGG/Opus audio. We send the raw bytes to
 Deepgram's pre-recorded transcription API and get text back, which then flows
 into the RAG agent exactly like a typed message.
 
-Uses the official `deepgram-sdk` (v3) async client. Falls back to a clear,
+Uses the official `deepgram-sdk` (v7) async client. Falls back to a clear,
 typed error if the key is missing so callers can reply gracefully to the user.
 
 Env vars:
     DEEPGRAM_API_KEY   Your Deepgram API key
     DEEPGRAM_MODEL     Model name (default: nova-2)
-    DEEPGRAM_LANGUAGE  Language hint (default: en; use "multi" for auto)
+    DEEPGRAM_LANGUAGE  Language hint (default: en; use "multi" for Roman-Urdu+English)
 """
 
 from __future__ import annotations

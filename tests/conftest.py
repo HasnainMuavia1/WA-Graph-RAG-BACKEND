@@ -47,13 +47,6 @@ _openai_stub.APIError = type("APIError", (Exception,), {})
 
 sys.modules.setdefault("openai", _openai_stub)
 
-# ── asyncpg stub ──────────────────────────────────────────────────────────────
-
-_asyncpg_stub = MagicMock(name="asyncpg")
-_asyncpg_stub.create_pool = AsyncMock(return_value=MagicMock())
-_asyncpg_stub.Pool = MagicMock
-sys.modules.setdefault("asyncpg", _asyncpg_stub)
-
 # ── neo4j stub ────────────────────────────────────────────────────────────────
 
 _neo4j_stub = MagicMock(name="neo4j")

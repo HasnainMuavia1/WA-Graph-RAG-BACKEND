@@ -178,13 +178,20 @@ class HybridRetriever:
         for rank, r in enumerate(vector_results):
             cid = str(r.get("chunk_id", ""))
             rrf_scores[cid] = rrf_scores.get(cid, 0.0) + 1.0 / (rank + self.rrf_k)
-            merged[cid] = {**r, "vector_rank": rank + 1}
+            # Preserve the true cosine similarity from the vector leg — it is the
+            # only stable, interpretable confidence signal (RRF scores are not).
+            merged[cid] = {
+                **r,
+                "vector_rank": rank + 1,
+                "cosine_similarity": float(r.get("similarity", 0.0)),
+            }
 
         for rank, r in enumerate(bm25_results):
             cid = str(r.get("chunk_id", ""))
             rrf_scores[cid] = rrf_scores.get(cid, 0.0) + 1.0 / (rank + self.rrf_k)
             if cid not in merged:
-                merged[cid] = {**r}
+                # BM25-only hit: no cosine available for it.
+                merged[cid] = {**r, "cosine_similarity": 0.0}
             merged[cid]["bm25_rank"] = rank + 1
 
         top_ids = sorted(rrf_scores, key=lambda x: rrf_scores[x], reverse=True)[:limit]

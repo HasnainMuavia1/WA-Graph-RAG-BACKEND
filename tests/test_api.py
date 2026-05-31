@@ -287,30 +287,3 @@ class TestListDocumentsLogic:
             results = await list_documents_tool(DocumentListInput())
 
         assert results == []
-
-
-# ── Session info logic ────────────────────────────────────────────────────────
-
-
-class TestSessionInfoLogic:
-    """Test session retrieval through the storage layer."""
-
-    def test_existing_session_returned(self):
-        from agent.json_storage import JSONStorage
-        import tempfile
-
-        with tempfile.TemporaryDirectory() as tmp:
-            storage = JSONStorage(storage_dir=tmp)
-            sid = storage.create_session(user_id="alice")
-            session = storage.get_session(sid)
-
-        assert session is not None
-        assert session["user_id"] == "alice"
-
-    def test_nonexistent_session_returns_none(self):
-        from agent.json_storage import JSONStorage
-        import tempfile
-
-        with tempfile.TemporaryDirectory() as tmp:
-            storage = JSONStorage(storage_dir=tmp)
-            assert storage.get_session("ghost") is None

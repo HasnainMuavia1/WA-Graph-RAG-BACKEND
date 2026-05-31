@@ -5,6 +5,7 @@ JWT + password utilities for the auth system.
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -13,12 +14,28 @@ from typing import Any, Dict
 import bcrypt
 import jwt
 
+logger = logging.getLogger(__name__)
+
 # ── Config ────────────────────────────────────────────────────────────────────
 
-JWT_SECRET = os.getenv("JWT_SECRET_KEY", "change-me-in-production")
+_DEFAULT_JWT_SECRET = "change-me-in-production"
+JWT_SECRET = os.getenv("JWT_SECRET_KEY", _DEFAULT_JWT_SECRET)
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
+
+# Refuse to run with the insecure default secret outside development — a leaked
+# default would let anyone forge admin tokens.
+if JWT_SECRET == _DEFAULT_JWT_SECRET or not JWT_SECRET:
+    if os.getenv("APP_ENV", "development").lower() == "development":
+        logger.warning(
+            "JWT_SECRET_KEY is unset/default — set a strong secret before production."
+        )
+    else:
+        raise RuntimeError(
+            "JWT_SECRET_KEY must be set to a strong, unique value in non-development "
+            "environments."
+        )
 
 
 # ── Password helpers ──────────────────────────────────────────────────────────

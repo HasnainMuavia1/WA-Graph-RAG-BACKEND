@@ -4,59 +4,16 @@ Neo4j knowledge graph utilities.
 
 import os
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
 
 _driver = None
 
 
-class GraphClient:
-    """Thin wrapper around the Neo4j driver for knowledge-graph operations."""
-
-    def __init__(self, driver, database: str = "neo4j") -> None:
-        self._driver = driver
-        self._database = database
-
-    def _session(self):
-        return self._driver.session(database=self._database)
-
-    async def get_entity_timeline(
-        self,
-        entity_name: str,
-        start_date: Optional[object] = None,
-        end_date: Optional[object] = None,
-    ) -> List[Dict[str, Any]]:
-        """Return time-ordered facts for a named entity."""
-        cypher = """
-        MATCH (e:Entity {name: $entity_name})-[r:HAS_FACT]->(f:Fact)
-        WHERE ($start_date IS NULL OR f.valid_at >= $start_date)
-          AND ($end_date   IS NULL OR f.valid_at <= $end_date)
-        RETURN f.content AS fact, f.valid_at AS valid_at, f.invalid_at AS invalid_at
-        ORDER BY f.valid_at ASC
-        """
-        try:
-            async with self._session() as session:
-                result = await session.run(
-                    cypher,
-                    entity_name=entity_name,
-                    start_date=str(start_date) if start_date else None,
-                    end_date=str(end_date) if end_date else None,
-                )
-                records = await result.data()
-            return records
-        except Exception as exc:
-            logger.error("Entity timeline query failed: %s", exc)
-            return []
-
-
-# Module-level singleton — populated by initialize_graph()
-graph_client: Optional[GraphClient] = None
-
-
 async def initialize_graph() -> None:
-    """Open the Neo4j driver and expose the global graph_client."""
-    global _driver, graph_client
+    """Open the Neo4j driver for knowledge-graph search."""
+    global _driver
 
     uri = os.getenv("NEO4J_URI")
     user = os.getenv("NEO4J_USERNAME") or os.getenv("NEO4J_USER", "neo4j")
@@ -71,7 +28,6 @@ async def initialize_graph() -> None:
         from neo4j import AsyncGraphDatabase
 
         _driver = AsyncGraphDatabase.driver(uri, auth=(user, password))
-        graph_client = GraphClient(_driver, database=database)
         logger.info("Neo4j graph database initialised (%s)", database)
     except ImportError:
         logger.warning("neo4j package not installed — graph database disabled")
@@ -81,11 +37,10 @@ async def initialize_graph() -> None:
 
 async def close_graph() -> None:
     """Close the Neo4j driver."""
-    global _driver, graph_client
+    global _driver
     if _driver:
         await _driver.close()
         _driver = None
-        graph_client = None
         logger.info("Neo4j connection closed")
 
 
@@ -104,74 +59,61 @@ async def test_graph_connection() -> bool:
         return False
 
 
+def _lucene_sanitize(query: str) -> str:
+    """Neutralise Lucene operators so a user query can't break the full-text call."""
+    import re
+
+    cleaned = re.sub(r'[+\-!(){}\[\]^"~*?:\\/]', " ", query or "")
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
+_FACT_CYPHER = """
+CALL db.index.fulltext.queryNodes('factIndex', $query)
+YIELD node, score
+WHERE node:Fact
+RETURN node.content AS fact, node.uuid AS uuid,
+       node.valid_at AS valid_at, node.invalid_at AS invalid_at,
+       node.source_node_uuid AS source_node_uuid
+ORDER BY score DESC
+LIMIT 20
+"""
+
+# Fallback: if no extracted facts match, search the raw chunk text so the graph
+# leg still contributes something rather than silently returning nothing.
+_CHUNK_CYPHER = """
+CALL db.index.fulltext.queryNodes('chunkIndex', $query)
+YIELD node, score
+WHERE node:Chunk
+RETURN node.content AS fact, node.content_hash AS uuid,
+       null AS valid_at, null AS invalid_at, null AS source_node_uuid
+ORDER BY score DESC
+LIMIT 10
+"""
+
+
 async def search_knowledge_graph(query: str) -> List[Dict[str, Any]]:
-    """Full-text search over graph facts."""
+    """Full-text search over extracted facts, falling back to raw chunk text."""
     if not _driver:
         return []
 
-    cypher = """
-    CALL db.index.fulltext.queryNodes('factIndex', $query)
-    YIELD node, score
-    WHERE node:Fact
-    RETURN
-        node.content        AS fact,
-        node.uuid           AS uuid,
-        node.valid_at       AS valid_at,
-        node.invalid_at     AS invalid_at,
-        node.source_node_uuid AS source_node_uuid
-    ORDER BY score DESC
-    LIMIT 20
-    """
+    safe = _lucene_sanitize(query)
+    if not safe:
+        return []
+
     try:
         async with _driver.session(
             database=os.getenv("NEO4J_DATABASE", "neo4j")
         ) as session:
-            result = await session.run(cypher, query=query)
+            # Parameters go in a dict — `run()`'s first positional arg is itself
+            # named `query`, so a `query=` kwarg would collide with the Cypher.
+            result = await session.run(_FACT_CYPHER, {"query": safe})
             records = await result.data()
-        return records
+            if records:
+                return records
+            # No facts matched — try the raw-chunk fallback index.
+            result = await session.run(_CHUNK_CYPHER, {"query": safe})
+            return await result.data()
     except Exception as exc:
         logger.error("Knowledge graph search failed: %s", exc)
         return []
-
-
-async def get_entity_relationships(entity: str, depth: int = 2) -> Dict[str, Any]:
-    """Return entities and relationships within *depth* hops from *entity*."""
-    if not _driver:
-        return {"central_entity": entity, "related_entities": [], "relationships": []}
-
-    cypher = f"""
-    MATCH path = (e:Entity {{name: $entity}})-[*1..{depth}]-(related)
-    RETURN
-        e.name              AS central_entity,
-        collect(DISTINCT related.name) AS related_entities,
-        [r IN relationships(path) | type(r)] AS relationship_types
-    LIMIT 50
-    """
-    try:
-        async with _driver.session(
-            database=os.getenv("NEO4J_DATABASE", "neo4j")
-        ) as session:
-            result = await session.run(cypher, entity=entity)
-            records = await result.data()
-        if records:
-            return {
-                "central_entity": entity,
-                "related_entities": records[0].get("related_entities", []),
-                "relationships": records[0].get("relationship_types", []),
-                "depth": depth,
-            }
-        return {
-            "central_entity": entity,
-            "related_entities": [],
-            "relationships": [],
-            "depth": depth,
-        }
-    except Exception as exc:
-        logger.error("Entity relationship query failed: %s", exc)
-        return {
-            "central_entity": entity,
-            "related_entities": [],
-            "relationships": [],
-            "depth": depth,
-            "error": str(exc),
-        }

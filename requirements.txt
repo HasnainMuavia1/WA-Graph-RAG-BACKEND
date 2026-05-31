@@ -11,9 +11,8 @@ openai>=1.50.0
 langchain-core>=0.3.0
 
 
-# ── Supabase & PostgreSQL ────────────────────────────────────────────────────
+# ── Supabase (PostgREST client; pgvector lives in Supabase Postgres) ──────────
 supabase>=2.0.0
-asyncpg>=0.29.0
 
 # ── Knowledge Graph ───────────────────────────────────────────────────────────
 neo4j>=5.0.0

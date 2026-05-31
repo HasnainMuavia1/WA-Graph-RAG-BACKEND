@@ -24,11 +24,19 @@ def _get_bucket_name(bucket_type: str) -> str:
 def _s3_client():
     import boto3
 
+    # Supabase Storage exposes an S3-compatible API at /storage/v1/s3.
+    # If SUPABASE_URL is set, route all S3 calls through it instead of AWS.
+    supabase_url = os.getenv("SUPABASE_URL")
+    endpoint_url = None
+    if supabase_url:
+        endpoint_url = f"{supabase_url.rstrip('/')}/storage/v1/s3"
+
     return boto3.client(
         "s3",
         aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
         aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-        region_name=os.getenv("AWS_REGION", "us-east-1"),
+        region_name=os.getenv("AWS_REGION", "us-east-2"),
+        endpoint_url=endpoint_url,
     )
 
 

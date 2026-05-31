@@ -76,6 +76,9 @@ class ChunkResult(BaseModel):
     document_id: str
     content: str
     score: float
+    # Raw pgvector cosine similarity (stable [0,1]); used by the confidence gate.
+    # Distinct from `score`, which may be an RRF/fused rank score.
+    vector_similarity: float = 0.0
     metadata: Dict[str, Any] = Field(default_factory=dict)
     document_title: str
     document_source: str
