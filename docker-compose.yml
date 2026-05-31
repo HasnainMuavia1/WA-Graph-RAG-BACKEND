@@ -28,6 +28,8 @@ services:
     command: ["python", "-m", "uvicorn", "agent.api:app", "--host", "${APP_HOST:-0.0.0.0}", "--port", "${APP_PORT:-8058}"]
     ports:
       - "${APP_PORT:-8058}:${APP_PORT:-8058}"
+    volumes:
+      - ./data:/app/data
     env_file:
       - .env
     depends_on:

@@ -277,14 +277,28 @@ async def create_permission(req: PermissionCreateRequest, _admin_user=Depends(_a
 async def delete_permission(permission_id: str, _admin_user=Depends(_admin)):
     """Delete a permission (admin only)."""
     await _client.table("permissions").delete().eq("id", permission_id).execute()
-    return None
+def _get_s3_client():
+    import boto3
+    import os
+    
+    supabase_url = os.getenv("SUPABASE_URL")
+    endpoint_url = None
+    if supabase_url:
+        endpoint_url = f"{supabase_url.rstrip('/')}/storage/v1/s3"
+        
+    return boto3.client(
+        "s3",
+        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+        region_name=os.getenv("AWS_REGION", "us-east-2"),
+        endpoint_url=endpoint_url,
+    )
 
 
 @router.post("/users/{user_id}/avatar")
 async def upload_user_avatar(user_id: str, file: UploadFile = File(...)):
     """Upload user avatar (saved locally + uploaded to S3)."""
     import os
-    import boto3
     from pathlib import Path
     try:
         # Verify user exists
@@ -303,12 +317,7 @@ async def upload_user_avatar(user_id: str, file: UploadFile = File(...)):
 
         # Upload to S3
         try:
-            s3 = boto3.client(
-                "s3",
-                aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-                aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-                region_name=os.getenv("AWS_REGION", "us-east-2"),
-            )
+            s3 = _get_s3_client()
             bucket = os.getenv("S3_PRIVATE_BUCKET", "uchenab")
             s3_key = f"avatars/{user_id}.jpg"
             s3.put_object(
@@ -320,6 +329,14 @@ async def upload_user_avatar(user_id: str, file: UploadFile = File(...)):
             logger.info("Uploaded avatar for %s to S3 bucket %s", user_id, bucket)
         except Exception as s3_err:
             logger.warning("S3 avatar upload failed (using local fallback): %s", s3_err)
+
+        # Update user's avatar_url in the Supabase database
+        try:
+            avatar_url = f"/api/v1/users/{user_id}/avatar"
+            await _client.table("users").update({"avatar_url": avatar_url}).eq("id", user_id).execute()
+            logger.info("Successfully updated avatar_url in Supabase users table for %s", user_id)
+        except Exception as db_err:
+            logger.warning("Failed to update users table in Supabase: %s", db_err)
 
         # Invalidate avatar cache in Redis
         try:
@@ -342,7 +359,6 @@ async def upload_user_avatar(user_id: str, file: UploadFile = File(...)):
 async def get_user_avatar(user_id: str):
     """Retrieve user avatar (Redis first, local fallback, S3 fallback, otherwise 404)."""
     import os
-    import boto3
     from pathlib import Path
     from fastapi.responses import Response
     from .redis_utils import get_redis_client
@@ -374,12 +390,7 @@ async def get_user_avatar(user_id: str):
     # 2. S3 check
     if not avatar_content:
         try:
-            s3 = boto3.client(
-                "s3",
-                aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-                aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-                region_name=os.getenv("AWS_REGION", "us-east-2"),
-            )
+            s3 = _get_s3_client()
             bucket = os.getenv("S3_PRIVATE_BUCKET", "uchenab")
             s3_key = f"avatars/{user_id}.jpg"
             try:
