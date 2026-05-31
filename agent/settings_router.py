@@ -41,9 +41,7 @@ async def get_agent_settings(_user=Depends(get_current_active_user)):
 
 
 @router.put("/agent")
-async def update_agent_settings(
-    body: AgentSettingsUpdate, _admin_user=Depends(_admin)
-):
+async def update_agent_settings(body: AgentSettingsUpdate, _admin_user=Depends(_admin)):
     """Update the agent configuration (admin only)."""
     patch = body.model_dump(exclude_none=True)
     if not patch:

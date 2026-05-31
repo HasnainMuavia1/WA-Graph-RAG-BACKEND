@@ -65,16 +65,13 @@ def _ensure_indexes(session) -> None:
     if _indexes_ready:
         return
     session.run(
-        "CREATE FULLTEXT INDEX factIndex IF NOT EXISTS "
-        "FOR (f:Fact) ON EACH [f.content]"
+        "CREATE FULLTEXT INDEX factIndex IF NOT EXISTS FOR (f:Fact) ON EACH [f.content]"
     )
     session.run(
         "CREATE FULLTEXT INDEX chunkIndex IF NOT EXISTS "
         "FOR (c:Chunk) ON EACH [c.content]"
     )
-    session.run(
-        "CREATE INDEX entityName IF NOT EXISTS FOR (e:Entity) ON (e.name)"
-    )
+    session.run("CREATE INDEX entityName IF NOT EXISTS FOR (e:Entity) ON (e.name)")
     _indexes_ready = True
 
 

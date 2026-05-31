@@ -179,12 +179,18 @@ async def main() -> None:
     neg_rrf_suppressed = sum(1 for s in neg_rrf if s < LEGACY_GATE)
     nn = len(NEGATIVE_QUERIES)
 
-    print("── CONFIDENCE GATE: old RRF (<%.3f) vs new cosine (<%.2f) ──" % (
-        LEGACY_GATE, COSINE_GATE))
-    print(f"  cosine range — relevant: {min(sims):.3f}-{max(sims):.3f} | "
-          f"off-domain: {min(neg_cos):.3f}-{max(neg_cos):.3f}")
-    print(f"  RRF range    — relevant: {min(hyb_top_scores):.4f}-{max(hyb_top_scores):.4f} | "
-          f"off-domain: {min(neg_rrf):.4f}-{max(neg_rrf):.4f}")
+    print(
+        "── CONFIDENCE GATE: old RRF (<%.3f) vs new cosine (<%.2f) ──"
+        % (LEGACY_GATE, COSINE_GATE)
+    )
+    print(
+        f"  cosine range — relevant: {min(sims):.3f}-{max(sims):.3f} | "
+        f"off-domain: {min(neg_cos):.3f}-{max(neg_cos):.3f}"
+    )
+    print(
+        f"  RRF range    — relevant: {min(hyb_top_scores):.4f}-{max(hyb_top_scores):.4f} | "
+        f"off-domain: {min(neg_rrf):.4f}-{max(neg_rrf):.4f}"
+    )
     print()
     print("  RELEVANT wrongly suppressed (lower=better):")
     print(f"    old RRF gate    : {pos_rrf_suppressed}/{n}")
