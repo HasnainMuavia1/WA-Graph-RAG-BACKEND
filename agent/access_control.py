@@ -26,9 +26,7 @@ def can_access_document(user_id: Optional[str], access_level: str) -> bool:
         return False
 
     admin_users = {
-        u.strip()
-        for u in os.getenv("ADMIN_USERS", "").split(",")
-        if u.strip()
+        u.strip() for u in os.getenv("ADMIN_USERS", "").split(",") if u.strip()
     }
     if user_id in admin_users:
         return True
@@ -52,9 +50,7 @@ def get_user_access_filter(user_id: Optional[str]) -> Optional[str]:
         return "public"
 
     admin_users = {
-        u.strip()
-        for u in os.getenv("ADMIN_USERS", "").split(",")
-        if u.strip()
+        u.strip() for u in os.getenv("ADMIN_USERS", "").split(",") if u.strip()
     }
     if user_id in admin_users:
         return None  # no filter — see all documents

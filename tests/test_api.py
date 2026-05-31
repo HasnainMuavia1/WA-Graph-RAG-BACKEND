@@ -21,6 +21,7 @@ from agent.models import (
 
 # ── Helper factories ──────────────────────────────────────────────────────────
 
+
 def _make_chat_request(**kwargs) -> ChatRequest:
     defaults = {"message": "What is Google's AI strategy?"}
     defaults.update(kwargs)
@@ -35,14 +36,17 @@ def _make_search_request(**kwargs) -> SearchRequest:
 
 # ── get_or_create_session ─────────────────────────────────────────────────────
 
+
 class TestGetOrCreateSession:
     def test_creates_new_session_when_none_provided(self):
         from agent.api import get_or_create_session
+
         sid = get_or_create_session(_make_chat_request())
         assert isinstance(sid, str) and len(sid) == 36  # UUID format
 
     def test_reuses_existing_session(self):
         from agent.api import get_or_create_session, memory_manager
+
         # Pre-create the session so it exists in LangChain memory
         existing_id = memory_manager.create_session()
         sid = get_or_create_session(_make_chat_request(session_id=existing_id))
@@ -50,6 +54,7 @@ class TestGetOrCreateSession:
 
     def test_registers_unknown_session_id_as_new_session(self):
         from agent.api import get_or_create_session, memory_manager
+
         # Unknown session_id is accepted and registered with the given ID
         sid = get_or_create_session(_make_chat_request(session_id="ghost-session"))
         assert sid == "ghost-session"
@@ -58,9 +63,11 @@ class TestGetOrCreateSession:
 
 # ── get_conversation_context ──────────────────────────────────────────────────
 
+
 class TestGetConversationContext:
     def test_returns_formatted_history(self):
         from agent.api import get_conversation_context, memory_manager
+
         sid = memory_manager.create_session()
         memory_manager.add_turn(sid, "Hello", "Hi there")
 
@@ -70,11 +77,13 @@ class TestGetConversationContext:
 
     def test_empty_session_returns_empty_string(self):
         from agent.api import get_conversation_context, memory_manager
+
         sid = memory_manager.create_session()
         assert get_conversation_context(sid) == ""
 
 
 # ── extract_tool_calls ────────────────────────────────────────────────────────
+
 
 class TestExtractToolCalls:
     def test_empty_result_returns_empty_list(self):
@@ -90,11 +99,15 @@ class TestExtractToolCalls:
 
         # Construct a class whose __name__ is "ToolCallPart" so the api.py
         # isinstance name-check identifies it correctly.
-        ToolCallPart = type("ToolCallPart", (), {
-            "tool_name": "vector_search",
-            "args": json.dumps({"query": "AI"}),
-            "tool_call_id": "call-abc",
-        })
+        ToolCallPart = type(
+            "ToolCallPart",
+            (),
+            {
+                "tool_name": "vector_search",
+                "args": json.dumps({"query": "AI"}),
+                "tool_call_id": "call-abc",
+            },
+        )
         part = ToolCallPart()
         # Ensure no args_as_dict method so JSON-string branch is used
         assert not hasattr(part, "args_as_dict")
@@ -122,9 +135,15 @@ class TestExtractToolCalls:
 
 # ── save_conversation_turn ────────────────────────────────────────────────────
 
+
 class TestSaveConversationTurn:
     def test_saves_both_messages_to_langchain_memory(self):
-        from agent.api import save_conversation_turn, get_conversation_context, memory_manager
+        from agent.api import (
+            save_conversation_turn,
+            get_conversation_context,
+            memory_manager,
+        )
+
         sid = memory_manager.create_session()
         save_conversation_turn(sid, "user question", "assistant answer")
 
@@ -134,6 +153,7 @@ class TestSaveConversationTurn:
 
     def test_sliding_window_trims_oldest_turns(self):
         from agent.session_memory import SessionMemoryManager
+
         mgr = SessionMemoryManager(window_size=2)
         sid = mgr.create_session()
         mgr.add_turn(sid, "q1", "a1")
@@ -141,12 +161,13 @@ class TestSaveConversationTurn:
         mgr.add_turn(sid, "q3", "a3")  # exceeds window_size=2
 
         ctx = mgr.get_context_string(sid)
-        assert "q1" not in ctx   # oldest turn dropped
+        assert "q1" not in ctx  # oldest turn dropped
         assert "q2" in ctx
         assert "q3" in ctx
 
 
 # ── execute_agent ─────────────────────────────────────────────────────────────
+
 
 class TestExecuteAgent:
     @pytest.mark.asyncio
@@ -192,6 +213,7 @@ class TestExecuteAgent:
 # ── Health check logic ────────────────────────────────────────────────────────
 # We test the business logic in isolation, not the decorated endpoint function.
 
+
 class TestHealthCheckLogic:
     """Test the health-check decision logic directly without the FastAPI decorator."""
 
@@ -231,6 +253,7 @@ class TestHealthCheckLogic:
 
 # ── Documents list logic ──────────────────────────────────────────────────────
 
+
 class TestListDocumentsLogic:
     """Test document listing through the tool layer (mocked DB)."""
 
@@ -267,6 +290,7 @@ class TestListDocumentsLogic:
 
 
 # ── Session info logic ────────────────────────────────────────────────────────
+
 
 class TestSessionInfoLogic:
     """Test session retrieval through the storage layer."""

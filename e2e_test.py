@@ -2,6 +2,7 @@
 End-to-end test: ingest a document → vector search → hybrid search → evaluate.
 Run: .venv/bin/python e2e_test.py
 """
+
 import asyncio
 import os
 import sys
@@ -13,7 +14,11 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 
 async def main():
-    from agent.db_utils import initialize_database, close_database, get_document_by_source
+    from agent.db_utils import (
+        initialize_database,
+        close_database,
+        get_document_by_source,
+    )
     from ingestion.ingest_service import IngestService
 
     print("\n=== 1. DB CONNECTION ===")
@@ -60,7 +65,10 @@ async def main():
     # ── Vector search ─────────────────────────────────────────────────────────
     print("\n=== 4. VECTOR SEARCH ===")
     from agent.tools import vector_search_tool, VectorSearchInput
-    vec_results = await vector_search_tool(VectorSearchInput(query="Microsoft OpenAI investment", limit=3))
+
+    vec_results = await vector_search_tool(
+        VectorSearchInput(query="Microsoft OpenAI investment", limit=3)
+    )
     if vec_results:
         for i, r in enumerate(vec_results, 1):
             print(f"[{i}] score={r.score:.3f}  doc={r.document_title}")
@@ -71,7 +79,10 @@ async def main():
     # ── Hybrid search ─────────────────────────────────────────────────────────
     print("\n=== 5. HYBRID SEARCH (BM25 + vector + RRF) ===")
     from agent.tools import hybrid_search_tool, HybridSearchInput
-    hyb_results = await hybrid_search_tool(HybridSearchInput(query="GPT-4 bar exam performance", limit=3))
+
+    hyb_results = await hybrid_search_tool(
+        HybridSearchInput(query="GPT-4 bar exam performance", limit=3)
+    )
     if hyb_results:
         for i, r in enumerate(hyb_results, 1):
             print(f"[{i}] score={r.score:.3f}  doc={r.document_title}")
@@ -89,7 +100,10 @@ async def main():
     print(f"Re-ingest status: {result2.status} (expected: skipped)")
 
     print("\n=== 7. UPDATE TEST (changed content) ===")
-    updated_content = content + "\nGPT-4o was released in May 2024 as a faster and cheaper multimodal successor."
+    updated_content = (
+        content
+        + "\nGPT-4o was released in May 2024 as a faster and cheaper multimodal successor."
+    )
     result3 = await svc.ingest_document(
         content=updated_content,
         source="test://openai-gpt4-overview-v2",

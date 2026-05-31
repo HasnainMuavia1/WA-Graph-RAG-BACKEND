@@ -34,7 +34,10 @@ def _normalize_wa_id(raw: str) -> str:
     """Strip '+'/spaces/dashes and validate an E.164-style WhatsApp id."""
     digits = re.sub(r"\D", "", raw or "")
     if not _WA_ID_RE.match(digits):
-        raise HTTPException(status_code=400, detail="Invalid WhatsApp number (use digits, country code first).")
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid WhatsApp number (use digits, country code first).",
+        )
     return digits
 
 
@@ -43,7 +46,9 @@ class SendMessageRequest(BaseModel):
 
 
 class StartConversationRequest(BaseModel):
-    wa_id: str = Field(..., description="Recipient WhatsApp number (digits, country code first)")
+    wa_id: str = Field(
+        ..., description="Recipient WhatsApp number (digits, country code first)"
+    )
     contact_name: Optional[str] = Field(None, max_length=120)
 
 
@@ -55,12 +60,21 @@ async def list_conversations_endpoint(
     _user=Depends(_auth),
 ):
     """List WhatsApp conversations, most recently active first."""
-    convos = await conversation_store.list_conversations(limit=limit, offset=offset, search=search)
-    return {"conversations": convos, "limit": limit, "offset": offset, "count": len(convos)}
+    convos = await conversation_store.list_conversations(
+        limit=limit, offset=offset, search=search
+    )
+    return {
+        "conversations": convos,
+        "limit": limit,
+        "offset": offset,
+        "count": len(convos),
+    }
 
 
 @router.post("")
-async def start_conversation_endpoint(body: StartConversationRequest, _user=Depends(_auth)):
+async def start_conversation_endpoint(
+    body: StartConversationRequest, _user=Depends(_auth)
+):
     """Start (or open) a conversation with any number — for admin-initiated chats."""
     wa_id = _normalize_wa_id(body.wa_id)
     conv = await conversation_store.start_conversation(wa_id, body.contact_name)
@@ -84,8 +98,9 @@ async def get_messages_endpoint(
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
     messages = await conversation_store.get_messages(wa_id, limit=limit, after=after)
-    
+
     import json
+
     for msg in messages:
         content = msg.get("content") or ""
         if msg.get("direction") == "outbound" and "<!--PROVENANCE:" in content:

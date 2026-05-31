@@ -15,13 +15,14 @@ import jwt
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-JWT_SECRET      = os.getenv("JWT_SECRET_KEY", "change-me-in-production")
-JWT_ALGORITHM   = os.getenv("JWT_ALGORITHM",  "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES  = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES",  "60"))
-REFRESH_TOKEN_EXPIRE_DAYS    = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS",    "7"))
+JWT_SECRET = os.getenv("JWT_SECRET_KEY", "change-me-in-production")
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
+REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 
 
 # ── Password helpers ──────────────────────────────────────────────────────────
+
 
 def hash_password(plain: str) -> str:
     return bcrypt.hashpw(plain.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
@@ -36,14 +37,15 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 # ── JWT helpers ───────────────────────────────────────────────────────────────
 
+
 def create_access_token(user_id: str, email: str, roles: list[str]) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     payload = {
-        "sub":   user_id,
+        "sub": user_id,
         "email": email,
         "roles": roles,
-        "type":  "access",
-        "exp":   expire,
+        "type": "access",
+        "exp": expire,
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 

@@ -137,7 +137,7 @@ class SessionMemoryManager:
         pipe.rpush(key, json.dumps({"role": "user", "content": user_message}))
         pipe.rpush(key, json.dumps({"role": "assistant", "content": ai_message}))
         pipe.ltrim(key, -self._window_size * 2, -1)  # keep last N turn-pairs
-        pipe.expire(key, self._ttl)                  # refresh rolling TTL
+        pipe.expire(key, self._ttl)  # refresh rolling TTL
         pipe.execute()
 
     def get_messages(self, session_id: str) -> List:

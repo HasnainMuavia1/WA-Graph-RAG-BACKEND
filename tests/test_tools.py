@@ -26,6 +26,7 @@ from agent.tools import (
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def _chunk_row(**overrides):
     base = {
         "chunk_id": "chunk-1",
@@ -55,6 +56,7 @@ def _graph_row(**overrides):
 
 # ── Input model validation ────────────────────────────────────────────────────
 
+
 class TestInputModels:
     def test_vector_search_input_defaults(self):
         v = VectorSearchInput(query="test")
@@ -67,6 +69,7 @@ class TestInputModels:
 
     def test_graph_search_input_query_required(self):
         from pydantic import ValidationError
+
         with pytest.raises((ValidationError, TypeError)):
             GraphSearchInput()  # type: ignore[call-arg]
 
@@ -81,6 +84,7 @@ class TestInputModels:
 
 
 # ── Vector search tool ────────────────────────────────────────────────────────
+
 
 class TestVectorSearchTool:
     @pytest.mark.asyncio
@@ -100,7 +104,10 @@ class TestVectorSearchTool:
 
     @pytest.mark.asyncio
     async def test_returns_empty_list_on_error(self):
-        with patch("agent.tools.generate_embedding", AsyncMock(side_effect=RuntimeError("API down"))):
+        with patch(
+            "agent.tools.generate_embedding",
+            AsyncMock(side_effect=RuntimeError("API down")),
+        ):
             results = await vector_search_tool(VectorSearchInput(query="test"))
 
         assert results == []
@@ -114,7 +121,9 @@ class TestVectorSearchTool:
             return []
 
         with (
-            patch("agent.tools.generate_embedding", AsyncMock(return_value=[0.0] * 1536)),
+            patch(
+                "agent.tools.generate_embedding", AsyncMock(return_value=[0.0] * 1536)
+            ),
             patch("agent.tools.vector_search", _fake_vector_search),
         ):
             await vector_search_tool(VectorSearchInput(query="q", user_id="alice"))
@@ -124,12 +133,15 @@ class TestVectorSearchTool:
 
 # ── Graph search tool ─────────────────────────────────────────────────────────
 
+
 class TestGraphSearchTool:
     @pytest.mark.asyncio
     async def test_returns_graph_results(self):
         graph_rows = [_graph_row(), _graph_row(uuid="uuid-002")]
 
-        with patch("agent.tools.search_knowledge_graph", AsyncMock(return_value=graph_rows)):
+        with patch(
+            "agent.tools.search_knowledge_graph", AsyncMock(return_value=graph_rows)
+        ):
             results = await graph_search_tool(GraphSearchInput(query="acquisitions"))
 
         assert len(results) == 2
@@ -137,7 +149,10 @@ class TestGraphSearchTool:
 
     @pytest.mark.asyncio
     async def test_returns_empty_list_on_error(self):
-        with patch("agent.tools.search_knowledge_graph", AsyncMock(side_effect=Exception("Neo4j down"))):
+        with patch(
+            "agent.tools.search_knowledge_graph",
+            AsyncMock(side_effect=Exception("Neo4j down")),
+        ):
             results = await graph_search_tool(GraphSearchInput(query="test"))
 
         assert results == []
@@ -146,13 +161,16 @@ class TestGraphSearchTool:
     async def test_maps_fact_field(self):
         graph_rows = [_graph_row(fact="Google founded in 1998")]
 
-        with patch("agent.tools.search_knowledge_graph", AsyncMock(return_value=graph_rows)):
+        with patch(
+            "agent.tools.search_knowledge_graph", AsyncMock(return_value=graph_rows)
+        ):
             results = await graph_search_tool(GraphSearchInput(query="Google"))
 
         assert results[0].fact == "Google founded in 1998"
 
 
 # ── Hybrid search tool ────────────────────────────────────────────────────────
+
 
 class TestHybridSearchTool:
     @pytest.mark.asyncio
@@ -162,23 +180,32 @@ class TestHybridSearchTool:
 
         with (
             patch("agent.tools.generate_embedding", AsyncMock(return_value=embedding)),
-            patch("agent.retriever.hybrid_retriever.retrieve", AsyncMock(return_value=db_rows)),
+            patch(
+                "agent.retriever.hybrid_retriever.retrieve",
+                AsyncMock(return_value=db_rows),
+            ),
             patch("agent.tools.hybrid_search", AsyncMock(return_value=db_rows)),
         ):
-            results = await hybrid_search_tool(HybridSearchInput(query="machine learning"))
+            results = await hybrid_search_tool(
+                HybridSearchInput(query="machine learning")
+            )
 
         assert len(results) == 1
         assert results[0].score == 0.88
 
     @pytest.mark.asyncio
     async def test_returns_empty_list_on_error(self):
-        with patch("agent.tools.generate_embedding", AsyncMock(side_effect=ValueError("bad input"))):
+        with patch(
+            "agent.tools.generate_embedding",
+            AsyncMock(side_effect=ValueError("bad input")),
+        ):
             results = await hybrid_search_tool(HybridSearchInput(query="test"))
 
         assert results == []
 
 
 # ── List documents tool ───────────────────────────────────────────────────────
+
 
 class TestListDocumentsTool:
     @pytest.mark.asyncio
@@ -213,6 +240,7 @@ class TestListDocumentsTool:
 
 # ── Entity relationship tool ──────────────────────────────────────────────────
 
+
 class TestEntityRelationshipTool:
     @pytest.mark.asyncio
     async def test_returns_entity_data(self):
@@ -223,7 +251,9 @@ class TestEntityRelationshipTool:
             "depth": 2,
         }
 
-        with patch("agent.tools.get_entity_relationships", AsyncMock(return_value=mock_result)):
+        with patch(
+            "agent.tools.get_entity_relationships", AsyncMock(return_value=mock_result)
+        ):
             result = await get_entity_relationships_tool(
                 EntityRelationshipInput(entity_name="Google", depth=2)
             )
@@ -233,7 +263,10 @@ class TestEntityRelationshipTool:
 
     @pytest.mark.asyncio
     async def test_returns_error_dict_on_failure(self):
-        with patch("agent.tools.get_entity_relationships", AsyncMock(side_effect=RuntimeError("DB error"))):
+        with patch(
+            "agent.tools.get_entity_relationships",
+            AsyncMock(side_effect=RuntimeError("DB error")),
+        ):
             result = await get_entity_relationships_tool(
                 EntityRelationshipInput(entity_name="Unknown Corp")
             )
@@ -243,6 +276,7 @@ class TestEntityRelationshipTool:
 
 
 # ── Comprehensive search ──────────────────────────────────────────────────────
+
 
 class TestPerformComprehensiveSearch:
     @pytest.mark.asyncio
@@ -254,7 +288,9 @@ class TestPerformComprehensiveSearch:
         with (
             patch("agent.tools.generate_embedding", AsyncMock(return_value=embedding)),
             patch("agent.tools.vector_search", AsyncMock(return_value=chunk_rows)),
-            patch("agent.tools.search_knowledge_graph", AsyncMock(return_value=graph_rows)),
+            patch(
+                "agent.tools.search_knowledge_graph", AsyncMock(return_value=graph_rows)
+            ),
         ):
             results = await perform_comprehensive_search("AI acquisitions")
 
@@ -280,7 +316,9 @@ class TestPerformComprehensiveSearch:
     async def test_graph_only(self):
         graph_rows = [_graph_row()]
 
-        with patch("agent.tools.search_knowledge_graph", AsyncMock(return_value=graph_rows)):
+        with patch(
+            "agent.tools.search_knowledge_graph", AsyncMock(return_value=graph_rows)
+        ):
             results = await perform_comprehensive_search("test", use_vector=False)
 
         assert results["vector_results"] == []

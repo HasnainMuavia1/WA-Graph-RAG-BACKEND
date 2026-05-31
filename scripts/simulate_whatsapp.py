@@ -25,25 +25,33 @@ APP_SECRET = os.getenv("WHATSAPP_APP_SECRET", "")
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--to", required=True, help="Sender wa_id (E.164, no '+'). The reply goes here.")
+    ap.add_argument(
+        "--to", required=True, help="Sender wa_id (E.164, no '+'). The reply goes here."
+    )
     ap.add_argument("--text", default="Admission ke liye kya requirements hain?")
     args = ap.parse_args()
 
     payload = {
         "object": "whatsapp_business_account",
-        "entry": [{
-            "changes": [{
-                "value": {
-                    "contacts": [{"wa_id": args.to}],
-                    "messages": [{
-                        "id": "wamid.SIMULATED",
-                        "from": args.to,
-                        "type": "text",
-                        "text": {"body": args.text},
-                    }],
-                }
-            }]
-        }],
+        "entry": [
+            {
+                "changes": [
+                    {
+                        "value": {
+                            "contacts": [{"wa_id": args.to}],
+                            "messages": [
+                                {
+                                    "id": "wamid.SIMULATED",
+                                    "from": args.to,
+                                    "type": "text",
+                                    "text": {"body": args.text},
+                                }
+                            ],
+                        }
+                    }
+                ]
+            }
+        ],
     }
     body = json.dumps(payload).encode()
     sig = hmac.new(APP_SECRET.encode(), body, hashlib.sha256).hexdigest()
@@ -51,12 +59,18 @@ def main() -> None:
     req = urllib.request.Request(
         f"{API}/api/v1/whatsapp/webhook",
         data=body,
-        headers={"Content-Type": "application/json", "X-Hub-Signature-256": f"sha256={sig}"},
+        headers={
+            "Content-Type": "application/json",
+            "X-Hub-Signature-256": f"sha256={sig}",
+        },
         method="POST",
     )
     with urllib.request.urlopen(req) as resp:
         print("Webhook HTTP", resp.status, resp.read().decode())
-    print("→ Worker is now processing; the bot's reply will arrive on WhatsApp at", args.to)
+    print(
+        "→ Worker is now processing; the bot's reply will arrive on WhatsApp at",
+        args.to,
+    )
 
 
 if __name__ == "__main__":

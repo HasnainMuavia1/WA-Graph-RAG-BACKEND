@@ -2,8 +2,6 @@
 Unit tests for access-control logic.
 """
 
-
-
 from agent.access_control import (
     assign_access_level,
     can_access_document,

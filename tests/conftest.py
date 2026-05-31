@@ -30,12 +30,11 @@ os.environ["SESSION_MEMORY_BACKEND"] = "memory"
 
 # ── openai stub ───────────────────────────────────────────────────────────────
 
+
 def _make_async_openai_instance(*_args: Any, **_kwargs: Any) -> MagicMock:
     client = MagicMock()
     client.embeddings.create = AsyncMock(
-        return_value=MagicMock(
-            data=[MagicMock(embedding=[0.1] * 1536)]
-        )
+        return_value=MagicMock(data=[MagicMock(embedding=[0.1] * 1536)])
     )
     return client
 
@@ -89,6 +88,7 @@ sys.modules.setdefault("pydantic_ai.messages", MagicMock())
 # Route decorators (on both FastAPI app and APIRouter) must pass the decorated
 # function through unchanged so tests can import and call the handlers directly.
 
+
 class _FakeHTTPException(Exception):
     def __init__(self, status_code: int = 500, detail: str = ""):
         self.status_code = status_code
@@ -133,8 +133,16 @@ sys.modules.setdefault("uvicorn", MagicMock())
 
 # ── llama_index stubs ─────────────────────────────────────────────────────────
 
+
 class _FakeTextNode:
-    def __init__(self, *args: Any, id_: str = "", text: str = "", metadata: Any = None, **kwargs: Any):
+    def __init__(
+        self,
+        *args: Any,
+        id_: str = "",
+        text: str = "",
+        metadata: Any = None,
+        **kwargs: Any,
+    ):
         self.node_id = id_
         self.text = text
         self.metadata = metadata or {}
@@ -196,6 +204,7 @@ def mock_embedding() -> list:
 @pytest.fixture()
 def mock_chunk_results() -> list:
     from agent.models import ChunkResult
+
     return [
         ChunkResult(
             chunk_id="chunk-1",
@@ -221,6 +230,7 @@ def mock_chunk_results() -> list:
 @pytest.fixture()
 def mock_graph_results() -> list:
     from agent.models import GraphSearchResult
+
     return [
         GraphSearchResult(
             fact="Google acquired DeepMind in 2014",

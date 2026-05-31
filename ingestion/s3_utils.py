@@ -44,9 +44,7 @@ def verify_s3_access() -> bool:
         return False
 
 
-def list_documents_from_s3(
-    bucket_type: str = "private", prefix: str = ""
-) -> List[str]:
+def list_documents_from_s3(bucket_type: str = "private", prefix: str = "") -> List[str]:
     """Return S3 object keys for supported document formats."""
     bucket = _get_bucket_name(bucket_type)
     if not bucket:

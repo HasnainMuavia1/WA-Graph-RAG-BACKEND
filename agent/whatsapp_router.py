@@ -80,7 +80,9 @@ async def receive_webhook(request: Request):
             if contacts:
                 contact_name = (contacts[0].get("profile") or {}).get("name")
             for msg in messages:
-                wa_id = msg.get("from") or (contacts[0].get("wa_id") if contacts else None)
+                wa_id = msg.get("from") or (
+                    contacts[0].get("wa_id") if contacts else None
+                )
                 if not wa_id:
                     continue
                 # Carry the display name through so the store can label the thread.

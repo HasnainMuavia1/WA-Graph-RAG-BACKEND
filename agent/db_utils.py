@@ -23,6 +23,7 @@ async def initialize_database() -> None:
     if not url or not key:
         raise EnvironmentError("SUPABASE_URL and SUPABASE_ANON_KEY must be set.")
     from supabase import acreate_client
+
     _client = await acreate_client(url, key)
     logger.info("Supabase client ready (%s)", url)
 
@@ -53,21 +54,34 @@ async def test_connection() -> bool:
 
 # ── Session management ────────────────────────────────────────────────────────
 
+
 async def create_session(
     user_id: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> str:
     session_id = str(uuid.uuid4())
-    await _client.table("sessions").insert({
-        "id": session_id,
-        "user_id": user_id,
-        "metadata": metadata or {},
-    }).execute()
+    await (
+        _client.table("sessions")
+        .insert(
+            {
+                "id": session_id,
+                "user_id": user_id,
+                "metadata": metadata or {},
+            }
+        )
+        .execute()
+    )
     return session_id
 
 
 async def get_session(session_id: str) -> Optional[Dict[str, Any]]:
-    result = await _client.table("sessions").select("*").eq("id", session_id).limit(1).execute()
+    result = (
+        await _client.table("sessions")
+        .select("*")
+        .eq("id", session_id)
+        .limit(1)
+        .execute()
+    )
     rows = result.data or []
     return rows[0] if rows else None
 
@@ -79,14 +93,25 @@ async def add_message(
     metadata: Optional[Dict[str, Any]] = None,
 ) -> str:
     message_id = str(uuid.uuid4())
-    await _client.table("messages").insert({
-        "id": message_id,
-        "session_id": session_id,
-        "role": role,
-        "content": content,
-        "metadata": metadata or {},
-    }).execute()
-    await _client.table("sessions").update({"updated_at": "now()"}).eq("id", session_id).execute()
+    await (
+        _client.table("messages")
+        .insert(
+            {
+                "id": message_id,
+                "session_id": session_id,
+                "role": role,
+                "content": content,
+                "metadata": metadata or {},
+            }
+        )
+        .execute()
+    )
+    await (
+        _client.table("sessions")
+        .update({"updated_at": "now()"})
+        .eq("id", session_id)
+        .execute()
+    )
     return message_id
 
 
@@ -105,6 +130,7 @@ async def get_session_messages(
 
 
 # ── Search ────────────────────────────────────────────────────────────────────
+
 
 async def vector_search(
     embedding: List[float],
@@ -154,8 +180,15 @@ async def hybrid_search(
 
 # ── Document upsert (deduplication) ──────────────────────────────────────────
 
+
 async def get_document_by_source(source: str) -> Optional[Dict[str, Any]]:
-    result = await _client.table("documents").select("*").eq("source", source).limit(1).execute()
+    result = (
+        await _client.table("documents")
+        .select("*")
+        .eq("source", source)
+        .limit(1)
+        .execute()
+    )
     rows = result.data or []
     return rows[0] if rows else None
 
@@ -171,24 +204,37 @@ async def upsert_document(
     existing = await get_document_by_source(source)
     if existing:
         doc_id = existing["id"]
-        await _client.table("documents").update({
-            "title": title,
-            "content": content,
-            "content_hash": content_hash,
-            "metadata": metadata or {},
-        }).eq("id", doc_id).execute()
+        await (
+            _client.table("documents")
+            .update(
+                {
+                    "title": title,
+                    "content": content,
+                    "content_hash": content_hash,
+                    "metadata": metadata or {},
+                }
+            )
+            .eq("id", doc_id)
+            .execute()
+        )
         return doc_id
 
     doc_id = str(uuid.uuid4())
-    await _client.table("documents").insert({
-        "id": doc_id,
-        "title": title,
-        "source": source,
-        "content": content,
-        "content_hash": content_hash,
-        "metadata": metadata or {},
-        "access_level": access_level,
-    }).execute()
+    await (
+        _client.table("documents")
+        .insert(
+            {
+                "id": doc_id,
+                "title": title,
+                "source": source,
+                "content": content,
+                "content_hash": content_hash,
+                "metadata": metadata or {},
+                "access_level": access_level,
+            }
+        )
+        .execute()
+    )
     return doc_id
 
 
@@ -207,26 +253,38 @@ async def save_chunks(document_id: str, embedded_chunks: list) -> None:
     if not embedded_chunks:
         return
     import hashlib
+
     rows = []
     for idx, chunk in enumerate(embedded_chunks):
         embedding = getattr(chunk, "embedding", None)
-        content_hash = hashlib.sha256(chunk.content.encode("utf-8", errors="replace")).hexdigest()
-        rows.append({
-            "document_id": document_id,
-            "content": chunk.content,
-            "content_hash": content_hash,
-            "embedding": embedding,
-            "chunk_index": getattr(chunk, "index", idx),
-            "token_count": getattr(chunk, "token_count", None),
-            "metadata": getattr(chunk, "metadata", {}),
-        })
+        content_hash = hashlib.sha256(
+            chunk.content.encode("utf-8", errors="replace")
+        ).hexdigest()
+        rows.append(
+            {
+                "document_id": document_id,
+                "content": chunk.content,
+                "content_hash": content_hash,
+                "embedding": embedding,
+                "chunk_index": getattr(chunk, "index", idx),
+                "token_count": getattr(chunk, "token_count", None),
+                "metadata": getattr(chunk, "metadata", {}),
+            }
+        )
     await _client.table("chunks").insert(rows).execute()
 
 
 # ── Documents ─────────────────────────────────────────────────────────────────
 
+
 async def get_document(document_id: str) -> Optional[Dict[str, Any]]:
-    result = await _client.table("documents").select("*").eq("id", document_id).limit(1).execute()
+    result = (
+        await _client.table("documents")
+        .select("*")
+        .eq("id", document_id)
+        .limit(1)
+        .execute()
+    )
     rows = result.data or []
     return rows[0] if rows else None
 
@@ -239,10 +297,16 @@ async def list_documents(
     query = _client.table("documents").select("*, chunks(count)")
     if user_id is None:
         query = query.eq("access_level", "public")
-    result = await query.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
+    result = (
+        await query.order("created_at", desc=True)
+        .range(offset, offset + limit - 1)
+        .execute()
+    )
     rows = result.data or []
     for r in rows:
-        r["chunk_count"] = r.pop("chunks", [{}])[0].get("count", 0) if r.get("chunks") else 0
+        r["chunk_count"] = (
+            r.pop("chunks", [{}])[0].get("count", 0) if r.get("chunks") else 0
+        )
     return rows
 
 
@@ -277,8 +341,7 @@ async def delete_graph_document(doc_key: str) -> None:
         with driver.session(database=database) as session:
             # Detach and delete all Chunk nodes with the given doc_key
             session.run(
-                "MATCH (c:Chunk {doc_key: $doc_key}) DETACH DELETE c",
-                doc_key=doc_key
+                "MATCH (c:Chunk {doc_key: $doc_key}) DETACH DELETE c", doc_key=doc_key
             )
         driver.close()
     except Exception as exc:
@@ -300,9 +363,11 @@ async def delete_document(document_id: str) -> None:
 
 # ── Helpers (kept for compatibility) ─────────────────────────────────────────
 
+
 def _build_access_filter(user_id: Optional[str]) -> str:
     """Kept for any callers that still reference it; not used internally."""
     from .access_control import get_user_access_filter
+
     level = get_user_access_filter(user_id)
     if level is None:
         return ""

@@ -156,17 +156,21 @@ class IngestService:
                 # ── Chunk-level diff ──────────────────────────────────────────
                 doc_id = existing["id"]
                 old_chunks = await get_document_chunks(doc_id)
-                old_hashes = {r.get("content_hash"): r for r in old_chunks if r.get("content_hash")}
+                old_hashes = {
+                    r.get("content_hash"): r
+                    for r in old_chunks
+                    if r.get("content_hash")
+                }
 
                 # Chunks to delete: exist in DB but not in new version
                 stale_ids = [
-                    r["id"] for r in old_chunks
+                    r["id"]
+                    for r in old_chunks
                     if r.get("content_hash") not in new_chunk_hashes
                 ]
                 # Chunks to embed: new or changed (not in old DB)
                 chunks_to_embed = [
-                    c for h, c in new_chunk_hashes.items()
-                    if h not in old_hashes
+                    c for h, c in new_chunk_hashes.items() if h not in old_hashes
                 ]
 
                 logger.info(
@@ -183,15 +187,21 @@ class IngestService:
 
                 # Update document metadata / hash
                 await upsert_document(
-                    source=source, title=title, content=content,
-                    content_hash=content_hash, metadata=meta, access_level=access_level,
+                    source=source,
+                    title=title,
+                    content=content,
+                    content_hash=content_hash,
+                    metadata=meta,
+                    access_level=access_level,
                 )
 
                 if not chunks_to_embed:
                     # All chunks identical — only metadata changed
                     return IngestResult(
-                        source=source, status="updated",
-                        document_id=doc_id, chunks_created=0,
+                        source=source,
+                        status="updated",
+                        document_id=doc_id,
+                        chunks_created=0,
                     )
 
                 embedded_new = await embedder.embed_chunks(chunks_to_embed)
@@ -201,8 +211,12 @@ class IngestService:
             else:
                 # ── Brand-new document ────────────────────────────────────────
                 doc_id = await upsert_document(
-                    source=source, title=title, content=content,
-                    content_hash=content_hash, metadata=meta, access_level=access_level,
+                    source=source,
+                    title=title,
+                    content=content,
+                    content_hash=content_hash,
+                    metadata=meta,
+                    access_level=access_level,
                 )
                 embedded_new = await embedder.embed_chunks(chunks)
                 await save_chunks(doc_id, embedded_new)
@@ -220,15 +234,24 @@ class IngestService:
             # Refresh BM25 index
             try:
                 from agent.retriever import hybrid_retriever  # type: ignore[import]
+
                 await hybrid_retriever.rebuild_index()
             except Exception as exc:
                 logger.warning("BM25 rebuild skipped: %s", exc)
 
             status = "updated" if is_update else "inserted"
-            logger.info("%s '%s' → %d new chunks [%s]", status.capitalize(), source, len(chunks_saved), access_level)
+            logger.info(
+                "%s '%s' → %d new chunks [%s]",
+                status.capitalize(),
+                source,
+                len(chunks_saved),
+                access_level,
+            )
             return IngestResult(
-                source=source, status=status,
-                document_id=doc_id, chunks_created=len(chunks_saved),
+                source=source,
+                status=status,
+                document_id=doc_id,
+                chunks_created=len(chunks_saved),
             )
 
         except Exception as exc:
@@ -283,7 +306,9 @@ class IngestService:
                 if content_bytes is None:
                     stats.failed += 1
                     stats.results.append(
-                        IngestResult(source=doc_key, status="failed", error="Download failed")
+                        IngestResult(
+                            source=doc_key, status="failed", error="Download failed"
+                        )
                     )
                     continue
 
@@ -291,7 +316,9 @@ class IngestService:
                 if not parsed_content:
                     stats.failed += 1
                     stats.results.append(
-                        IngestResult(source=doc_key, status="failed", error="Empty content")
+                        IngestResult(
+                            source=doc_key, status="failed", error="Empty content"
+                        )
                     )
                     continue
 
@@ -299,7 +326,11 @@ class IngestService:
                     content=parsed_content,
                     source=doc_key,
                     title=Path(doc_key).stem,
-                    metadata={**file_meta, "bucket_type": bucket_type, "s3_key": doc_key},
+                    metadata={
+                        **file_meta,
+                        "bucket_type": bucket_type,
+                        "s3_key": doc_key,
+                    },
                     access_level=access_level,
                 )
                 stats.results.append(result)
@@ -314,7 +345,11 @@ class IngestService:
 
         logger.info(
             "S3 ingest '%s' complete — inserted=%d updated=%d skipped=%d failed=%d",
-            bucket_type, stats.inserted, stats.updated, stats.skipped, stats.failed,
+            bucket_type,
+            stats.inserted,
+            stats.updated,
+            stats.skipped,
+            stats.failed,
         )
         return stats
 
@@ -336,11 +371,15 @@ class IngestService:
                 s3_key, bucket_type=bucket_type, save_path=local_path
             )
             if content_bytes is None:
-                return IngestResult(source=s3_key, status="failed", error="Download failed")
+                return IngestResult(
+                    source=s3_key, status="failed", error="Download failed"
+                )
 
             parsed_content, file_meta = parse_document(local_path)
             if not parsed_content:
-                return IngestResult(source=s3_key, status="failed", error="Empty content")
+                return IngestResult(
+                    source=s3_key, status="failed", error="Empty content"
+                )
 
             return await self.ingest_document(
                 content=parsed_content,
@@ -356,12 +395,14 @@ class IngestService:
         if self._chunker:
             return self._chunker
         from ingestion.chunker import ChunkingConfig, create_chunker
+
         return create_chunker(ChunkingConfig())
 
     def _get_embedder(self):
         if self._embedder:
             return self._embedder
         from ingestion.embedder import create_embedder
+
         return create_embedder()
 
 
@@ -371,6 +412,7 @@ ingest_service = IngestService()
 
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
+
 
 def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()

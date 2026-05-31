@@ -127,15 +127,27 @@ class TestBuildIndex:
     async def test_rebuild_replaces_previous_index(self):
         r = HybridRetriever()
         chunks_v1 = [
-            {"chunk_id": "c1", "document_id": "d1", "content": "v1",
-             "document_title": "t", "document_source": "s", "metadata": {}},
+            {
+                "chunk_id": "c1",
+                "document_id": "d1",
+                "content": "v1",
+                "document_title": "t",
+                "document_source": "s",
+                "metadata": {},
+            },
         ]
         await r.build_index(chunks=chunks_v1)
         assert "c1" in r._node_map
 
         chunks_v2 = [
-            {"chunk_id": "c2", "document_id": "d1", "content": "v2",
-             "document_title": "t", "document_source": "s", "metadata": {}},
+            {
+                "chunk_id": "c2",
+                "document_id": "d1",
+                "content": "v2",
+                "document_title": "t",
+                "document_source": "s",
+                "metadata": {},
+            },
         ]
         await r.build_index(chunks=chunks_v2)
         assert "c2" in r._node_map
@@ -147,14 +159,23 @@ class TestRetrieve:
     async def test_returns_merged_results(self):
         r = HybridRetriever()
         chunks = [
-            {"chunk_id": "c1", "document_id": "d1", "content": "AI research",
-             "document_title": "T", "document_source": "S", "metadata": {}},
+            {
+                "chunk_id": "c1",
+                "document_id": "d1",
+                "content": "AI research",
+                "document_title": "T",
+                "document_source": "S",
+                "metadata": {},
+            },
         ]
         await r.build_index(chunks=chunks)
 
         with patch("agent.retriever.HybridRetriever._load_all_chunks"):
-            with patch("agent.db_utils.vector_search", AsyncMock(return_value=[_vec_row("c1")])):
+            with patch(
+                "agent.db_utils.vector_search", AsyncMock(return_value=[_vec_row("c1")])
+            ):
                 import agent.retriever as ret_mod
+
                 with patch.object(ret_mod, "_LLAMA_AVAILABLE", True):
                     result = await r.retrieve(
                         query="AI", embedding=[0.1] * 1536, limit=5
@@ -167,7 +188,10 @@ class TestRetrieve:
         r = HybridRetriever()
         await r.build_index(chunks=[])
 
-        with patch("agent.db_utils.vector_search", AsyncMock(side_effect=RuntimeError("DB down"))):
+        with patch(
+            "agent.db_utils.vector_search",
+            AsyncMock(side_effect=RuntimeError("DB down")),
+        ):
             result = await r.retrieve(query="test", embedding=[0.1] * 1536)
 
         assert result == []
@@ -178,7 +202,9 @@ class TestRetrieve:
         # No BM25 index built
         vector_row = _vec_row("c1")
 
-        with patch("agent.db_utils.vector_search", AsyncMock(return_value=[vector_row])):
+        with patch(
+            "agent.db_utils.vector_search", AsyncMock(return_value=[vector_row])
+        ):
             result = await r.retrieve(query="test", embedding=[0.1] * 1536)
 
         # Should still return vector results even without BM25

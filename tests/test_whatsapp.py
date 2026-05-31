@@ -75,4 +75,6 @@ class TestConfigured:
         assert _client().is_configured is True
 
     def test_is_configured_false_without_token(self):
-        assert WhatsAppClient(access_token="", phone_number_id="").is_configured is False
+        assert (
+            WhatsAppClient(access_token="", phone_number_id="").is_configured is False
+        )

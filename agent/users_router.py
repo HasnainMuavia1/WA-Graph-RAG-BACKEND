@@ -14,10 +14,14 @@ from pydantic import BaseModel, Field
 
 from .auth_deps import get_current_active_user, require_roles
 from .auth_utils import hash_password
+
+
 class DBClientProxy:
     def __getattr__(self, name):
         from . import db_utils
+
         return getattr(db_utils._client, name)
+
 
 _client = DBClientProxy()
 
@@ -39,29 +43,30 @@ class UserCreateRequest(BaseModel):
 
 class UserUpdateRequest(BaseModel):
     full_name: Optional[str] = None
-    username:  Optional[str] = None
+    username: Optional[str] = None
     is_active: Optional[bool] = None
     role_names: Optional[List[str]] = None  # admin: replace user's roles
 
 
 class RoleCreateRequest(BaseModel):
-    name:        str = Field(..., min_length=2)
+    name: str = Field(..., min_length=2)
     description: Optional[str] = None
 
 
 class RoleUpdateRequest(BaseModel):
-    description:    Optional[str] = None
+    description: Optional[str] = None
     permission_ids: Optional[List[str]] = None
 
 
 class PermissionCreateRequest(BaseModel):
-    name:        str = Field(..., min_length=2)
+    name: str = Field(..., min_length=2)
     description: Optional[str] = None
-    resource:    Optional[str] = None
-    action:      Optional[str] = None
+    resource: Optional[str] = None
+    action: Optional[str] = None
 
 
 # ── /api/v1/users ─────────────────────────────────────────────────────────────
+
 
 @router.get("/users")
 async def list_users(
@@ -72,7 +77,9 @@ async def list_users(
     """List all users (admin only)."""
     result = await (
         _client.table("users")
-        .select("id, email, username, full_name, is_active, is_verified, created_at, last_login_at")
+        .select(
+            "id, email, username, full_name, is_active, is_verified, created_at, last_login_at"
+        )
         .order("created_at", desc=True)
         .range(offset, offset + limit - 1)
         .execute()
@@ -87,7 +94,9 @@ async def list_users(
             .eq("user_id", user["id"])
             .execute()
         )
-        user["roles"] = [r["roles"]["name"] for r in (roles_res.data or []) if r.get("roles")]
+        user["roles"] = [
+            r["roles"]["name"] for r in (roles_res.data or []) if r.get("roles")
+        ]
 
     return {"users": users, "total": len(users), "limit": limit, "offset": offset}
 
@@ -96,29 +105,53 @@ async def list_users(
 async def create_user(req: UserCreateRequest, _admin_user=Depends(_admin)):
     """Create a new user directly (admin only)."""
     # Check if exists
-    existing = await _client.table("users").select("id").eq("email", req.email).limit(1).execute()
+    existing = (
+        await _client.table("users")
+        .select("id")
+        .eq("email", req.email)
+        .limit(1)
+        .execute()
+    )
     if existing.data:
         raise HTTPException(status_code=409, detail="Email already registered")
 
     user_id = str(uuid.uuid4())
-    await _client.table("users").insert({
-        "id":              user_id,
-        "email":           req.email,
-        "username":        req.username,
-        "full_name":       req.full_name,
-        "hashed_password": hash_password(req.password),
-        "is_active":       req.is_active,
-        "is_verified":     req.is_verified,
-    }).execute()
+    await (
+        _client.table("users")
+        .insert(
+            {
+                "id": user_id,
+                "email": req.email,
+                "username": req.username,
+                "full_name": req.full_name,
+                "hashed_password": hash_password(req.password),
+                "is_active": req.is_active,
+                "is_verified": req.is_verified,
+            }
+        )
+        .execute()
+    )
 
     # Assign roles
     for role_name in req.role_names:
-        role_res = await _client.table("roles").select("id").eq("name", role_name).limit(1).execute()
+        role_res = (
+            await _client.table("roles")
+            .select("id")
+            .eq("name", role_name)
+            .limit(1)
+            .execute()
+        )
         if role_res.data:
-            await _client.table("user_roles").insert({
-                "user_id": user_id,
-                "role_id": role_res.data[0]["id"],
-            }).execute()
+            await (
+                _client.table("user_roles")
+                .insert(
+                    {
+                        "user_id": user_id,
+                        "role_id": role_res.data[0]["id"],
+                    }
+                )
+                .execute()
+            )
 
     return {"id": user_id, "email": req.email, "message": "User created successfully"}
 
@@ -131,7 +164,9 @@ async def get_user(user_id: str, current_user=Depends(get_current_active_user)):
 
     result = await (
         _client.table("users")
-        .select("id, email, username, full_name, is_active, is_verified, created_at, last_login_at")
+        .select(
+            "id, email, username, full_name, is_active, is_verified, created_at, last_login_at"
+        )
         .eq("id", user_id)
         .limit(1)
         .execute()
@@ -141,13 +176,22 @@ async def get_user(user_id: str, current_user=Depends(get_current_active_user)):
         raise HTTPException(status_code=404, detail="User not found")
 
     user = rows[0]
-    roles_res = await _client.table("user_roles").select("roles(name)").eq("user_id", user_id).execute()
-    user["roles"] = [r["roles"]["name"] for r in (roles_res.data or []) if r.get("roles")]
+    roles_res = (
+        await _client.table("user_roles")
+        .select("roles(name)")
+        .eq("user_id", user_id)
+        .execute()
+    )
+    user["roles"] = [
+        r["roles"]["name"] for r in (roles_res.data or []) if r.get("roles")
+    ]
     return user
 
 
 @router.put("/users/{user_id}")
-async def update_user(user_id: str, req: UserUpdateRequest, _admin_user=Depends(_admin)):
+async def update_user(
+    user_id: str, req: UserUpdateRequest, _admin_user=Depends(_admin)
+):
     """Update a user's profile or roles (admin only)."""
     updates: dict = {}
     if req.full_name is not None:
@@ -164,12 +208,24 @@ async def update_user(user_id: str, req: UserUpdateRequest, _admin_user=Depends(
         # Replace roles
         await _client.table("user_roles").delete().eq("user_id", user_id).execute()
         for role_name in req.role_names:
-            role_res = await _client.table("roles").select("id").eq("name", role_name).limit(1).execute()
+            role_res = (
+                await _client.table("roles")
+                .select("id")
+                .eq("name", role_name)
+                .limit(1)
+                .execute()
+            )
             if role_res.data:
-                await _client.table("user_roles").insert({
-                    "user_id": user_id,
-                    "role_id": role_res.data[0]["id"],
-                }).execute()
+                await (
+                    _client.table("user_roles")
+                    .insert(
+                        {
+                            "user_id": user_id,
+                            "role_id": role_res.data[0]["id"],
+                        }
+                    )
+                    .execute()
+                )
 
     return {"message": "User updated successfully"}
 
@@ -182,6 +238,7 @@ async def delete_user(user_id: str, _admin_user=Depends(_admin)):
 
 
 # ── /api/v1/roles ─────────────────────────────────────────────────────────────
+
 
 @router.get("/roles")
 async def list_roles(_user=Depends(get_current_active_user)):
@@ -206,32 +263,59 @@ async def list_roles(_user=Depends(get_current_active_user)):
 @router.post("/roles", status_code=201)
 async def create_role(req: RoleCreateRequest, _admin_user=Depends(_admin)):
     """Create a new role (admin only)."""
-    existing = await _client.table("roles").select("id").eq("name", req.name).limit(1).execute()
+    existing = (
+        await _client.table("roles")
+        .select("id")
+        .eq("name", req.name)
+        .limit(1)
+        .execute()
+    )
     if existing.data:
         raise HTTPException(status_code=409, detail=f"Role '{req.name}' already exists")
 
     role_id = str(uuid.uuid4())
-    await _client.table("roles").insert({
-        "id":          role_id,
-        "name":        req.name,
-        "description": req.description,
-    }).execute()
+    await (
+        _client.table("roles")
+        .insert(
+            {
+                "id": role_id,
+                "name": req.name,
+                "description": req.description,
+            }
+        )
+        .execute()
+    )
     return {"id": role_id, "name": req.name, "message": "Role created"}
 
 
 @router.put("/roles/{role_id}")
-async def update_role(role_id: str, req: RoleUpdateRequest, _admin_user=Depends(_admin)):
+async def update_role(
+    role_id: str, req: RoleUpdateRequest, _admin_user=Depends(_admin)
+):
     """Update role description and/or replace its permissions (admin only)."""
     if req.description is not None:
-        await _client.table("roles").update({"description": req.description}).eq("id", role_id).execute()
+        await (
+            _client.table("roles")
+            .update({"description": req.description})
+            .eq("id", role_id)
+            .execute()
+        )
 
     if req.permission_ids is not None:
-        await _client.table("role_permissions").delete().eq("role_id", role_id).execute()
+        await (
+            _client.table("role_permissions").delete().eq("role_id", role_id).execute()
+        )
         for perm_id in req.permission_ids:
-            await _client.table("role_permissions").insert({
-                "role_id":       role_id,
-                "permission_id": perm_id,
-            }).execute()
+            await (
+                _client.table("role_permissions")
+                .insert(
+                    {
+                        "role_id": role_id,
+                        "permission_id": perm_id,
+                    }
+                )
+                .execute()
+            )
 
     return {"message": "Role updated"}
 
@@ -239,7 +323,9 @@ async def update_role(role_id: str, req: RoleUpdateRequest, _admin_user=Depends(
 @router.delete("/roles/{role_id}", status_code=204)
 async def delete_role(role_id: str, _admin_user=Depends(_admin)):
     """Delete a role (admin only). Protected names 'admin'/'user' cannot be deleted."""
-    result = await _client.table("roles").select("name").eq("id", role_id).limit(1).execute()
+    result = (
+        await _client.table("roles").select("name").eq("id", role_id).limit(1).execute()
+    )
     if result.data and result.data[0]["name"] in ("admin", "user"):
         raise HTTPException(status_code=400, detail="Cannot delete a built-in role")
     await _client.table("roles").delete().eq("id", role_id).execute()
@@ -247,6 +333,7 @@ async def delete_role(role_id: str, _admin_user=Depends(_admin)):
 
 
 # ── /api/v1/permissions ───────────────────────────────────────────────────────
+
 
 @router.get("/permissions")
 async def list_permissions(_user=Depends(get_current_active_user)):
@@ -258,18 +345,32 @@ async def list_permissions(_user=Depends(get_current_active_user)):
 @router.post("/permissions", status_code=201)
 async def create_permission(req: PermissionCreateRequest, _admin_user=Depends(_admin)):
     """Create a new permission (admin only)."""
-    existing = await _client.table("permissions").select("id").eq("name", req.name).limit(1).execute()
+    existing = (
+        await _client.table("permissions")
+        .select("id")
+        .eq("name", req.name)
+        .limit(1)
+        .execute()
+    )
     if existing.data:
-        raise HTTPException(status_code=409, detail=f"Permission '{req.name}' already exists")
+        raise HTTPException(
+            status_code=409, detail=f"Permission '{req.name}' already exists"
+        )
 
     perm_id = str(uuid.uuid4())
-    await _client.table("permissions").insert({
-        "id":          perm_id,
-        "name":        req.name,
-        "description": req.description,
-        "resource":    req.resource,
-        "action":      req.action,
-    }).execute()
+    await (
+        _client.table("permissions")
+        .insert(
+            {
+                "id": perm_id,
+                "name": req.name,
+                "description": req.description,
+                "resource": req.resource,
+                "action": req.action,
+            }
+        )
+        .execute()
+    )
     return {"id": perm_id, "name": req.name, "message": "Permission created"}
 
 
@@ -277,15 +378,17 @@ async def create_permission(req: PermissionCreateRequest, _admin_user=Depends(_a
 async def delete_permission(permission_id: str, _admin_user=Depends(_admin)):
     """Delete a permission (admin only)."""
     await _client.table("permissions").delete().eq("id", permission_id).execute()
+
+
 def _get_s3_client():
     import boto3
     import os
-    
+
     supabase_url = os.getenv("SUPABASE_URL")
     endpoint_url = None
     if supabase_url:
         endpoint_url = f"{supabase_url.rstrip('/')}/storage/v1/s3"
-        
+
     return boto3.client(
         "s3",
         aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
@@ -300,9 +403,16 @@ async def upload_user_avatar(user_id: str, file: UploadFile = File(...)):
     """Upload user avatar (saved locally + uploaded to S3)."""
     import os
     from pathlib import Path
+
     try:
         # Verify user exists
-        user_res = await _client.table("users").select("id").eq("id", user_id).limit(1).execute()
+        user_res = (
+            await _client.table("users")
+            .select("id")
+            .eq("id", user_id)
+            .limit(1)
+            .execute()
+        )
         if not user_res.data:
             raise HTTPException(status_code=404, detail="User not found")
 
@@ -324,7 +434,7 @@ async def upload_user_avatar(user_id: str, file: UploadFile = File(...)):
                 Bucket=bucket,
                 Key=s3_key,
                 Body=contents,
-                ContentType=file.content_type or "image/jpeg"
+                ContentType=file.content_type or "image/jpeg",
             )
             logger.info("Uploaded avatar for %s to S3 bucket %s", user_id, bucket)
         except Exception as s3_err:
@@ -333,14 +443,23 @@ async def upload_user_avatar(user_id: str, file: UploadFile = File(...)):
         # Update user's avatar_url in the Supabase database
         try:
             avatar_url = f"/api/v1/users/{user_id}/avatar"
-            await _client.table("users").update({"avatar_url": avatar_url}).eq("id", user_id).execute()
-            logger.info("Successfully updated avatar_url in Supabase users table for %s", user_id)
+            await (
+                _client.table("users")
+                .update({"avatar_url": avatar_url})
+                .eq("id", user_id)
+                .execute()
+            )
+            logger.info(
+                "Successfully updated avatar_url in Supabase users table for %s",
+                user_id,
+            )
         except Exception as db_err:
             logger.warning("Failed to update users table in Supabase: %s", db_err)
 
         # Invalidate avatar cache in Redis
         try:
             from .redis_utils import get_redis_client
+
             redis_client = get_redis_client()
             if redis_client:
                 cache_key = f"uchenab:avatar:{user_id}"
@@ -349,7 +468,10 @@ async def upload_user_avatar(user_id: str, file: UploadFile = File(...)):
         except Exception as cache_err:
             logger.warning("Failed to invalidate Redis avatar cache: %s", cache_err)
 
-        return {"message": "Avatar uploaded successfully", "avatar_url": f"/api/v1/users/{user_id}/avatar"}
+        return {
+            "message": "Avatar uploaded successfully",
+            "avatar_url": f"/api/v1/users/{user_id}/avatar",
+        }
     except Exception as e:
         logger.error("Avatar upload failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
@@ -413,7 +535,7 @@ async def get_user_avatar(user_id: str):
                 logger.info("Cached avatar for %s in Redis", user_id)
         except Exception as cache_err:
             logger.warning("Failed to cache avatar in Redis: %s", cache_err)
-        
+
         return Response(content=avatar_content, media_type="image/jpeg")
 
     raise HTTPException(status_code=404, detail="Avatar not found")

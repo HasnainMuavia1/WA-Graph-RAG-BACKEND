@@ -25,14 +25,15 @@ logger = logging.getLogger(__name__)
 # Retry policy shared by ingestion tasks — transient S3/OpenAI/graph hiccups.
 _INGEST_RETRY = dict(
     autoretry_for=(Exception,),
-    retry_backoff=True,        # 1s, 2s, 4s, …
-    retry_backoff_max=300,     # cap at 5 minutes
+    retry_backoff=True,  # 1s, 2s, 4s, …
+    retry_backoff_max=300,  # cap at 5 minutes
     retry_jitter=True,
     max_retries=5,
 )
 
 
 # ── Ingestion tasks ───────────────────────────────────────────────────────────
+
 
 @celery_app.task(name="worker.tasks.ingest_all_task", bind=True, **_INGEST_RETRY)
 def ingest_all_task(self) -> Dict[str, int]:
@@ -53,12 +54,18 @@ def ingest_all_task(self) -> Dict[str, int]:
 
 
 @celery_app.task(name="worker.tasks.ingest_bucket_task", bind=True, **_INGEST_RETRY)
-def ingest_bucket_task(self, bucket_type: str = "private", prefix: str = "") -> Dict[str, int]:
+def ingest_bucket_task(
+    self, bucket_type: str = "private", prefix: str = ""
+) -> Dict[str, int]:
     """Ingest a single bucket / prefix."""
     from ingestion.ingest_service import ingest_service
 
-    logger.info("Task ingest_bucket_task '%s/%s' (id=%s)", bucket_type, prefix, self.request.id)
-    stats = run_async(ingest_service.ingest_from_s3(bucket_type=bucket_type, prefix=prefix))
+    logger.info(
+        "Task ingest_bucket_task '%s/%s' (id=%s)", bucket_type, prefix, self.request.id
+    )
+    stats = run_async(
+        ingest_service.ingest_from_s3(bucket_type=bucket_type, prefix=prefix)
+    )
     return {
         "bucket_type": bucket_type,
         "prefix": prefix,
@@ -118,6 +125,7 @@ def ingest_document_task(
 
 # ── Messaging task (WhatsApp inbound pipeline) ────────────────────────────────
 
+
 @celery_app.task(
     name="worker.tasks.process_whatsapp_message_task",
     bind=True,
@@ -127,7 +135,9 @@ def ingest_document_task(
     retry_jitter=True,
     max_retries=3,
 )
-def process_whatsapp_message_task(self, message: Dict[str, Any], contact_wa_id: str) -> Dict[str, Any]:
+def process_whatsapp_message_task(
+    self, message: Dict[str, Any], contact_wa_id: str
+) -> Dict[str, Any]:
     """
     Process one inbound WhatsApp message end-to-end.
 
@@ -135,11 +145,17 @@ def process_whatsapp_message_task(self, message: Dict[str, Any], contact_wa_id: 
     `entry[].changes[].value.messages[]` array. Supports `text` and `audio`
     (voice note) message types. The reply is sent back via the WhatsApp client.
     """
-    logger.info("Task process_whatsapp_message_task from %s (id=%s)", contact_wa_id, self.request.id)
+    logger.info(
+        "Task process_whatsapp_message_task from %s (id=%s)",
+        contact_wa_id,
+        self.request.id,
+    )
     return run_async(_process_whatsapp_message(message, contact_wa_id))
 
 
-async def _process_whatsapp_message(message: Dict[str, Any], contact_wa_id: str) -> Dict[str, Any]:
+async def _process_whatsapp_message(
+    message: Dict[str, Any], contact_wa_id: str
+) -> Dict[str, Any]:
     from integrations.whatsapp import whatsapp_client
     from integrations.deepgram_client import transcriber, TranscriptionError
     from agent.conversation import run_agent_turn
@@ -165,7 +181,9 @@ async def _process_whatsapp_message(message: Dict[str, Any], contact_wa_id: str)
         audio_meta = message.get("audio") or {}
         media_id = audio_meta.get("id")
         if not media_id:
-            await whatsapp_client.send_text(contact_wa_id, "I couldn't read that voice note.")
+            await whatsapp_client.send_text(
+                contact_wa_id, "I couldn't read that voice note."
+            )
             return {"status": "error", "reason": "no media id"}
         try:
             audio_bytes, mime = await whatsapp_client.fetch_media_bytes(media_id)
@@ -187,21 +205,27 @@ async def _process_whatsapp_message(message: Dict[str, Any], contact_wa_id: str)
         return {"status": "ignored", "type": msg_type}
 
     if not user_text:
-        await whatsapp_client.send_text(contact_wa_id, "Your message was empty — please try again.")
+        await whatsapp_client.send_text(
+            contact_wa_id, "Your message was empty — please try again."
+        )
         return {"status": "ignored", "reason": "empty"}
 
     # Persist the inbound user message (durable transcript for the admin screen).
     try:
         await conversation_store.record_inbound(
-            contact_wa_id, user_text,
-            message_type=msg_type, transcribed=transcribed,
-            wa_message_id=msg_id, contact_name=contact_name,
+            contact_wa_id,
+            user_text,
+            message_type=msg_type,
+            transcribed=transcribed,
+            wa_message_id=msg_id,
+            contact_name=contact_name,
         )
     except Exception as exc:  # never block the reply on logging
         logger.warning("Failed to persist inbound message: %s", exc)
 
     # ── Out-of-Scope (Tier 1) Classifier ─────────────────────────────────────
     from agent.guardrails import classify_query_scope
+
     scope_verdict = await classify_query_scope(user_text)
 
     if scope_verdict == "out_of_scope":
@@ -214,13 +238,17 @@ async def _process_whatsapp_message(message: Dict[str, Any], contact_wa_id: str)
             reply = f'🎙️ I heard: "{user_text}"\n\n{reply}'
         await whatsapp_client.send_text(contact_wa_id, reply)
         try:
-            await conversation_store.record_outbound(contact_wa_id, reply, sender="agent")
+            await conversation_store.record_outbound(
+                contact_wa_id, reply, sender="agent"
+            )
         except Exception as exc:
             logger.warning("Failed to persist outbound out-of-scope message: %s", exc)
         return {"status": "out_of_scope_replied", "chars": len(reply)}
 
     # ── RAG Agent Turn Execution ─────────────────────────────────────────────
-    reply, deps = await run_agent_turn(message=user_text, session_id=session_id, user_id=session_id)
+    reply, deps = await run_agent_turn(
+        message=user_text, session_id=session_id, user_id=session_id
+    )
 
     # If we transcribed a voice note, echo what we heard for transparency.
     if transcribed:
@@ -243,20 +271,22 @@ async def _process_whatsapp_message(message: Dict[str, Any], contact_wa_id: str)
         meta = chunk.metadata or {}
         page_sec = meta.get("page") or meta.get("section") or meta.get("page_number")
         page_sec_str = f"Page/Section {page_sec}" if page_sec else None
-        prov_sources.append({
-            "source_document_name": chunk.document_title,
-            "chunk_id": chunk.chunk_id,
-            "page_section": page_sec_str,
-            "retrieval_method_used": selected_tool,
-            "confidence_score": float(chunk.score)
-        })
+        prov_sources.append(
+            {
+                "source_document_name": chunk.document_title,
+                "chunk_id": chunk.chunk_id,
+                "page_section": page_sec_str,
+                "retrieval_method_used": selected_tool,
+                "confidence_score": float(chunk.score),
+            }
+        )
 
     debug_metadata = {
         "provenance": {
             "sources": prov_sources,
             "timestamp": datetime.utcnow().isoformat() + "Z",
             "user_query": user_text,
-            "final_answer": reply
+            "final_answer": reply,
         },
         "debug": {
             "selected_retrieval_tool": selected_tool,
@@ -266,16 +296,12 @@ async def _process_whatsapp_message(message: Dict[str, Any], contact_wa_id: str)
                     "content": c.content,
                     "score": float(c.score),
                     "document_title": c.document_title,
-                    "document_source": c.document_source
+                    "document_source": c.document_source,
                 }
                 for c in chunks
             ],
             "neo4j_results": [
-                {
-                    "fact": f.fact,
-                    "valid_at": f.valid_at
-                }
-                for f in graph_facts
+                {"fact": f.fact, "valid_at": f.valid_at} for f in graph_facts
             ],
             "redis_session_context": memory_manager.get_context_string(session_id),
             "final_generated_prompt_summary": f"Previous conversation context + current question: {user_text}",
@@ -283,9 +309,9 @@ async def _process_whatsapp_message(message: Dict[str, Any], contact_wa_id: str)
             "guardrail_result": {
                 "input_allowed": True,
                 "input_reason": None,
-                "output_applied": True
-            }
-        }
+                "output_applied": True,
+            },
+        },
     }
 
     # ── Confidence Gate (Tier 2) ─────────────────────────────────────────────
@@ -293,8 +319,12 @@ async def _process_whatsapp_message(message: Dict[str, Any], contact_wa_id: str)
 
     if is_low_confidence:
         # Suppress response to student. Celery alert and admin notification only.
-        logger.warning("Low confidence detected for university query '%s' (max_score=%f). Suppressing reply.", user_text, max_score)
-        
+        logger.warning(
+            "Low confidence detected for university query '%s' (max_score=%f). Suppressing reply.",
+            user_text,
+            max_score,
+        )
+
         # Trigger background Celery alert
         notify_admin_weak_context_task.delay(contact_wa_id, user_text)
 
@@ -303,9 +333,13 @@ async def _process_whatsapp_message(message: Dict[str, Any], contact_wa_id: str)
             "⚠️ [SYSTEM ALERT] Low confidence detected: context is weak/missing. "
             "Celery notification has been triggered. Student was NOT replied to. Please reply manually."
         )
-        system_alert_with_prov = system_alert + "\n\n<!--PROVENANCE:" + json.dumps(debug_metadata) + "-->"
+        system_alert_with_prov = (
+            system_alert + "\n\n<!--PROVENANCE:" + json.dumps(debug_metadata) + "-->"
+        )
         try:
-            await conversation_store.record_outbound(contact_wa_id, system_alert_with_prov, sender="agent")
+            await conversation_store.record_outbound(
+                contact_wa_id, system_alert_with_prov, sender="agent"
+            )
         except Exception as exc:
             logger.warning("Failed to persist outbound system alert: %s", exc)
         return {"status": "low_confidence_suppressed", "max_score": max_score}
@@ -316,7 +350,9 @@ async def _process_whatsapp_message(message: Dict[str, Any], contact_wa_id: str)
     # Persist the agent's outbound reply with hidden provenance metadata
     reply_with_prov = reply + "\n\n<!--PROVENANCE:" + json.dumps(debug_metadata) + "-->"
     try:
-        await conversation_store.record_outbound(contact_wa_id, reply_with_prov, sender="agent")
+        await conversation_store.record_outbound(
+            contact_wa_id, reply_with_prov, sender="agent"
+        )
     except Exception as exc:
         logger.warning("Failed to persist outbound reply message: %s", exc)
 
@@ -328,6 +364,9 @@ def notify_admin_weak_context_task(wa_id: str, user_query: str) -> Dict[str, Any
     """
     Background task to notify/alert admins about a low-confidence university question.
     """
-    logger.info("ADMIN ALERT [Celery Task]: Student %s asked low-confidence university question: '%s'", wa_id, user_query)
+    logger.info(
+        "ADMIN ALERT [Celery Task]: Student %s asked low-confidence university question: '%s'",
+        wa_id,
+        user_query,
+    )
     return {"status": "notified", "wa_id": wa_id, "query": user_query}
-

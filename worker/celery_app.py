@@ -63,14 +63,14 @@ celery_app.conf.update(
     timezone=os.getenv("CELERY_TIMEZONE", "UTC"),
     enable_utc=True,
     # ── Reliability ───────────────────────────────────────────────────────────
-    task_acks_late=True,               # re-deliver if a worker dies mid-task
+    task_acks_late=True,  # re-deliver if a worker dies mid-task
     task_reject_on_worker_lost=True,
-    worker_prefetch_multiplier=1,      # fair dispatch for long-running tasks
-    task_track_started=True,           # expose STARTED state for polling
+    worker_prefetch_multiplier=1,  # fair dispatch for long-running tasks
+    task_track_started=True,  # expose STARTED state for polling
     result_expires=int(os.getenv("CELERY_RESULT_EXPIRES", "86400")),  # 24h
     # ── Safety limits ─────────────────────────────────────────────────────────
     task_soft_time_limit=int(os.getenv("CELERY_SOFT_TIME_LIMIT", "1500")),  # 25m
-    task_time_limit=int(os.getenv("CELERY_TIME_LIMIT", "1800")),            # 30m
+    task_time_limit=int(os.getenv("CELERY_TIME_LIMIT", "1800")),  # 30m
     broker_connection_retry_on_startup=True,
 )
 

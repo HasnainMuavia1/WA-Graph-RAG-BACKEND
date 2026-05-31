@@ -74,10 +74,15 @@ class TestCreateChunker:
 
 # ── SimpleChunker ─────────────────────────────────────────────────────────────
 
+
 class TestSimpleChunker:
     @pytest.fixture()
     def chunker(self):
-        return SimpleChunker(ChunkingConfig(chunk_size=200, chunk_overlap=20, use_semantic_splitting=False))
+        return SimpleChunker(
+            ChunkingConfig(
+                chunk_size=200, chunk_overlap=20, use_semantic_splitting=False
+            )
+        )
 
     def test_empty_content_returns_no_chunks(self, chunker):
         chunks = chunker.chunk_document("", "title", "src")
@@ -128,10 +133,16 @@ class TestSimpleChunkerHelpers:
 
     @pytest.fixture()
     def chunker(self):
-        return SimpleChunker(ChunkingConfig(chunk_size=100, chunk_overlap=10, use_semantic_splitting=False))
+        return SimpleChunker(
+            ChunkingConfig(
+                chunk_size=100, chunk_overlap=10, use_semantic_splitting=False
+            )
+        )
 
     def test_create_chunk_preserves_content(self, chunker):
-        chunk = chunker._create_chunk("short text", 0, 0, 10, {"chunk_method": "simple"})
+        chunk = chunker._create_chunk(
+            "short text", 0, 0, 10, {"chunk_method": "simple"}
+        )
         assert chunk.content == "short text"
 
     def test_semantic_chunker_simple_split_creates_multiple_parts(self):
@@ -143,6 +154,7 @@ class TestSimpleChunkerHelpers:
 
 
 # ── SemanticChunker ───────────────────────────────────────────────────────────
+
 
 class TestSemanticChunker:
     @pytest.fixture()

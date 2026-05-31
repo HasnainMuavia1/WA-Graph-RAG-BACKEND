@@ -53,6 +53,7 @@ class TestGenerateEmbedding:
         gen_mock = AsyncMock(return_value=_make_embedding_response())
 
         import ingestion.embedder as emb_mod
+
         with patch.object(emb_mod, "embedding_client") as mock_client:
             mock_client.embeddings.create = gen_mock
             embedding = await gen.generate_embedding("test text")
@@ -72,6 +73,7 @@ class TestGenerateEmbedding:
             return _make_embedding_response()
 
         import ingestion.embedder as emb_mod
+
         with patch.object(emb_mod, "embedding_client") as mock_client:
             mock_client.embeddings.create = _fake_create
             await gen.generate_embedding(long_text)
@@ -82,6 +84,7 @@ class TestGenerateEmbedding:
     @pytest.mark.asyncio
     async def test_retries_on_rate_limit(self):
         import openai
+
         gen = EmbeddingGenerator(max_retries=3, retry_delay=0)
         call_count = 0
 
@@ -93,6 +96,7 @@ class TestGenerateEmbedding:
             return _make_embedding_response()
 
         import ingestion.embedder as emb_mod
+
         with patch.object(emb_mod, "embedding_client") as mock_client:
             mock_client.embeddings.create = _flaky
             embedding = await gen.generate_embedding("text")
@@ -111,6 +115,7 @@ class TestGenerateEmbeddingsBatch:
         mock_resp.data = [MagicMock(embedding=[0.1] * 1536) for _ in texts]
 
         import ingestion.embedder as emb_mod
+
         with patch.object(emb_mod, "embedding_client") as mock_client:
             mock_client.embeddings.create = AsyncMock(return_value=mock_resp)
             embeddings = await gen.generate_embeddings_batch(texts)
@@ -126,6 +131,7 @@ class TestGenerateEmbeddingsBatch:
         mock_resp.data = [MagicMock(embedding=[0.0] * 1536) for _ in texts]
 
         import ingestion.embedder as emb_mod
+
         with patch.object(emb_mod, "embedding_client") as mock_client:
             mock_client.embeddings.create = AsyncMock(return_value=mock_resp)
             embeddings = await gen.generate_embeddings_batch(texts)
@@ -143,6 +149,7 @@ class TestEmbedChunks:
         mock_resp.data = [MagicMock(embedding=[float(i)] * 1536) for i in range(5)]
 
         import ingestion.embedder as emb_mod
+
         with patch.object(emb_mod, "embedding_client") as mock_client:
             mock_client.embeddings.create = AsyncMock(return_value=mock_resp)
             embedded = await gen.embed_chunks(chunks)
@@ -167,9 +174,12 @@ class TestEmbedChunks:
         mock_resp.data = [MagicMock(embedding=[0.1] * 1536) for _ in range(3)]
 
         import ingestion.embedder as emb_mod
+
         with patch.object(emb_mod, "embedding_client") as mock_client:
             mock_client.embeddings.create = AsyncMock(return_value=mock_resp)
-            await gen.embed_chunks(chunks, progress_callback=lambda c, t: callback_calls.append((c, t)))
+            await gen.embed_chunks(
+                chunks, progress_callback=lambda c, t: callback_calls.append((c, t))
+            )
 
         assert len(callback_calls) == 2  # 6 chunks / batch_size=3 = 2 batches
 

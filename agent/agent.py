@@ -54,15 +54,10 @@ class AgentDependencies:
     selected_retrieval_tool: Optional[str] = None
 
 
-
 _model = OpenAIModel(
     os.getenv("LLM_CHOICE", "gpt-4o-mini"),
     provider=OpenAIProvider(
-        api_key=(
-            os.getenv("OPENAI_API_KEY")
-            or os.getenv("LLM_API_KEY")
-            or ""
-        ),
+        api_key=(os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY") or ""),
         base_url=os.getenv("LLM_BASE_URL") or None,
     ),
 )

@@ -50,7 +50,9 @@ class WhatsAppClient:
         timeout: float = 30.0,
     ) -> None:
         self.access_token = access_token or os.getenv("WHATSAPP_ACCESS_TOKEN", "")
-        self.phone_number_id = phone_number_id or os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
+        self.phone_number_id = phone_number_id or os.getenv(
+            "WHATSAPP_PHONE_NUMBER_ID", ""
+        )
         self.app_secret = app_secret or os.getenv("WHATSAPP_APP_SECRET", "")
         self.verify_token = verify_token or os.getenv("WHATSAPP_VERIFY_TOKEN", "")
         self.api_version = api_version or os.getenv("WHATSAPP_API_VERSION", "v21.0")
@@ -72,7 +74,9 @@ class WhatsAppClient:
         return {"Authorization": f"Bearer {self.access_token}"}
 
     # ── Webhook verification (GET handshake) ──────────────────────────────────
-    def verify_subscription(self, mode: str | None, token: str | None, challenge: str | None) -> str | None:
+    def verify_subscription(
+        self, mode: str | None, token: str | None, challenge: str | None
+    ) -> str | None:
         """Return the challenge string if Meta's GET handshake is valid, else None."""
         if mode == "subscribe" and token and token == self.verify_token:
             return challenge
@@ -85,7 +89,9 @@ class WhatsAppClient:
         If no App Secret is configured we skip verification (dev mode) and warn.
         """
         if not self.app_secret:
-            logger.warning("WHATSAPP_APP_SECRET not set — skipping signature verification")
+            logger.warning(
+                "WHATSAPP_APP_SECRET not set — skipping signature verification"
+            )
             return True
         if not signature_header or not signature_header.startswith("sha256="):
             return False
@@ -112,7 +118,9 @@ class WhatsAppClient:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             resp = await client.post(url, headers=self._auth_headers, json=payload)
             if resp.status_code >= 400:
-                logger.error("WhatsApp send_text failed (%s): %s", resp.status_code, resp.text)
+                logger.error(
+                    "WhatsApp send_text failed (%s): %s", resp.status_code, resp.text
+                )
             resp.raise_for_status()
             return resp.json()
 

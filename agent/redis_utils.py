@@ -7,6 +7,7 @@ logger = logging.getLogger(__name__)
 _redis_client = None
 _redis_checked = False
 
+
 def get_redis_client() -> redis.Redis | None:
     """Return a shared Redis client, or None if Redis is unavailable.
 

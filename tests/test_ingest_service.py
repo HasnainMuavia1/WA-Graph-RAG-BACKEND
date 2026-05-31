@@ -13,6 +13,7 @@ from ingestion.ingest_service import IngestResult, IngestService, IngestStats, _
 
 # ── _sha256 utility ───────────────────────────────────────────────────────────
 
+
 class TestSha256:
     def test_returns_64_char_hex(self):
         h = _sha256("hello world")
@@ -32,6 +33,7 @@ class TestSha256:
 
 # ── IngestResult / IngestStats dataclasses ────────────────────────────────────
 
+
 class TestIngestResult:
     def test_failed_result_has_error(self):
         r = IngestResult(source="s3://bucket/doc.pdf", status="failed", error="timeout")
@@ -39,7 +41,9 @@ class TestIngestResult:
         assert r.chunks_created == 0
 
     def test_success_result(self):
-        r = IngestResult(source="doc.pdf", status="inserted", document_id="uuid-1", chunks_created=5)
+        r = IngestResult(
+            source="doc.pdf", status="inserted", document_id="uuid-1", chunks_created=5
+        )
         assert r.status == "inserted"
         assert r.chunks_created == 5
 
@@ -54,6 +58,7 @@ class TestIngestStats:
 
 
 # ── IngestService.ingest_document ─────────────────────────────────────────────
+
 
 class TestIngestDocument:
     def _service(self):
@@ -78,10 +83,20 @@ class TestIngestDocument:
         svc._embedder.embed_chunks = AsyncMock(return_value=[chunk])
 
         with (
-            patch("ingestion.ingest_service.IngestService._get_chunker", return_value=svc._chunker),
-            patch("ingestion.ingest_service.IngestService._get_embedder", return_value=svc._embedder),
-            patch("agent.db_utils.get_document_by_source", AsyncMock(return_value=None)),
-            patch("agent.db_utils.upsert_document", AsyncMock(return_value="doc-uuid-new")),
+            patch(
+                "ingestion.ingest_service.IngestService._get_chunker",
+                return_value=svc._chunker,
+            ),
+            patch(
+                "ingestion.ingest_service.IngestService._get_embedder",
+                return_value=svc._embedder,
+            ),
+            patch(
+                "agent.db_utils.get_document_by_source", AsyncMock(return_value=None)
+            ),
+            patch(
+                "agent.db_utils.upsert_document", AsyncMock(return_value="doc-uuid-new")
+            ),
             patch("agent.db_utils.save_chunks", AsyncMock()),
             patch("agent.db_utils.delete_document_chunks", AsyncMock()),
             patch("ingestion.graph_builder.build_knowledge_graph"),
@@ -104,7 +119,9 @@ class TestIngestDocument:
         content_hash = _sha256(content)
         existing = {"id": "existing-uuid", "content_hash": content_hash}
 
-        with patch("agent.db_utils.get_document_by_source", AsyncMock(return_value=existing)):
+        with patch(
+            "agent.db_utils.get_document_by_source", AsyncMock(return_value=existing)
+        ):
             result = await svc.ingest_document(
                 content=content,
                 source="s3://bucket/unchanged.pdf",
@@ -128,11 +145,25 @@ class TestIngestDocument:
         old_db_chunk = {"id": "old-chunk-id", "content_hash": _sha256("old content")}
 
         with (
-            patch("ingestion.ingest_service.IngestService._get_chunker", return_value=svc._chunker),
-            patch("ingestion.ingest_service.IngestService._get_embedder", return_value=svc._embedder),
-            patch("agent.db_utils.get_document_by_source", AsyncMock(return_value=existing)),
-            patch("agent.db_utils.get_document_chunks", AsyncMock(return_value=[old_db_chunk])),
-            patch("agent.db_utils.delete_chunks_by_ids", AsyncMock()) as mock_delete_ids,
+            patch(
+                "ingestion.ingest_service.IngestService._get_chunker",
+                return_value=svc._chunker,
+            ),
+            patch(
+                "ingestion.ingest_service.IngestService._get_embedder",
+                return_value=svc._embedder,
+            ),
+            patch(
+                "agent.db_utils.get_document_by_source",
+                AsyncMock(return_value=existing),
+            ),
+            patch(
+                "agent.db_utils.get_document_chunks",
+                AsyncMock(return_value=[old_db_chunk]),
+            ),
+            patch(
+                "agent.db_utils.delete_chunks_by_ids", AsyncMock()
+            ) as mock_delete_ids,
             patch("agent.db_utils.upsert_document", AsyncMock(return_value="doc-uuid")),
             patch("agent.db_utils.save_chunks", AsyncMock()),
             patch("ingestion.graph_builder.build_knowledge_graph"),
@@ -177,9 +208,17 @@ class TestIngestDocument:
             return "doc-id"
 
         with (
-            patch("ingestion.ingest_service.IngestService._get_chunker", return_value=svc._chunker),
-            patch("ingestion.ingest_service.IngestService._get_embedder", return_value=svc._embedder),
-            patch("agent.db_utils.get_document_by_source", AsyncMock(return_value=None)),
+            patch(
+                "ingestion.ingest_service.IngestService._get_chunker",
+                return_value=svc._chunker,
+            ),
+            patch(
+                "ingestion.ingest_service.IngestService._get_embedder",
+                return_value=svc._embedder,
+            ),
+            patch(
+                "agent.db_utils.get_document_by_source", AsyncMock(return_value=None)
+            ),
             patch("agent.db_utils.upsert_document", _fake_upsert),
             patch("agent.db_utils.save_chunks", AsyncMock()),
             patch("ingestion.graph_builder.build_knowledge_graph"),
@@ -202,19 +241,30 @@ class TestIngestDocument:
         svc._embedder.embed_chunks = AsyncMock(return_value=[chunk])
 
         with (
-            patch("ingestion.ingest_service.IngestService._get_chunker", return_value=svc._chunker),
-            patch("ingestion.ingest_service.IngestService._get_embedder", return_value=svc._embedder),
-            patch("agent.db_utils.get_document_by_source", AsyncMock(return_value=None)),
+            patch(
+                "ingestion.ingest_service.IngestService._get_chunker",
+                return_value=svc._chunker,
+            ),
+            patch(
+                "ingestion.ingest_service.IngestService._get_embedder",
+                return_value=svc._embedder,
+            ),
+            patch(
+                "agent.db_utils.get_document_by_source", AsyncMock(return_value=None)
+            ),
             patch("agent.db_utils.upsert_document", AsyncMock(return_value="doc-id")),
             patch("agent.db_utils.save_chunks", AsyncMock()),
             patch("ingestion.graph_builder.build_knowledge_graph"),
-            patch("agent.retriever.hybrid_retriever.rebuild_index", AsyncMock()) as mock_rebuild,
+            patch(
+                "agent.retriever.hybrid_retriever.rebuild_index", AsyncMock()
+            ) as mock_rebuild,
         ):
             await svc.ingest_document(content="text", source="src", title="t")
             mock_rebuild.assert_awaited_once()
 
 
 # ── IngestService.ingest_all_s3_buckets ──────────────────────────────────────
+
 
 class TestIngestAllS3Buckets:
     @pytest.mark.asyncio
@@ -224,7 +274,11 @@ class TestIngestAllS3Buckets:
         public_stats = IngestStats(inserted=1, failed=1)
 
         with (
-            patch.object(svc, "ingest_from_s3", AsyncMock(side_effect=[private_stats, public_stats])),
+            patch.object(
+                svc,
+                "ingest_from_s3",
+                AsyncMock(side_effect=[private_stats, public_stats]),
+            ),
         ):
             combined = await svc.ingest_all_s3_buckets()
 
@@ -250,13 +304,16 @@ class TestIngestAllS3Buckets:
 
 # ── IngestService.ingest_single_s3_object ────────────────────────────────────
 
+
 class TestIngestSingleS3Object:
     @pytest.mark.asyncio
     async def test_returns_failed_when_download_fails(self):
         svc = IngestService()
 
         with patch("ingestion.s3_utils.download_document_from_s3", return_value=None):
-            result = await svc.ingest_single_s3_object("bad/key.pdf", "my-private-bucket")
+            result = await svc.ingest_single_s3_object(
+                "bad/key.pdf", "my-private-bucket"
+            )
 
         assert result.status == "failed"
 
@@ -278,13 +335,20 @@ class TestIngestSingleS3Object:
         mock_embedder.embed_chunks = AsyncMock(return_value=[chunk])
         captured_level: list = []
 
-        async def _fake_ingest(content, source, title, metadata=None, access_level="public"):
+        async def _fake_ingest(
+            content, source, title, metadata=None, access_level="public"
+        ):
             captured_level.append(access_level)
             return IngestResult(source=source, status="inserted", chunks_created=1)
 
         with (
-            patch("ingestion.s3_utils.download_document_from_s3", return_value=b"content"),
-            patch("ingestion.file_parsers.parse_document", return_value=("document text", {})),
+            patch(
+                "ingestion.s3_utils.download_document_from_s3", return_value=b"content"
+            ),
+            patch(
+                "ingestion.file_parsers.parse_document",
+                return_value=("document text", {}),
+            ),
             patch.object(svc, "ingest_document", _fake_ingest),
         ):
             await svc.ingest_single_s3_object("docs/report.pdf", "my-private-bucket")

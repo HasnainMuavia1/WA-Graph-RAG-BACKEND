@@ -92,6 +92,7 @@ if APP_ENV == "development":
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting up Agentic RAG API …")
@@ -104,6 +105,7 @@ async def lifespan(app: FastAPI):
         # Build BM25 index from existing chunks
         try:
             from .retriever import hybrid_retriever
+
             await hybrid_retriever.build_index()
             logger.info("BM25 index ready")
         except Exception as exc:
@@ -152,6 +154,7 @@ v1_router = APIRouter(prefix="/api/v1")
 
 # ── Helper functions (also importable for testing) ────────────────────────────
 
+
 def get_or_create_session(request: ChatRequest) -> str:
     """Return existing session_id or create a new one via LangChain memory."""
     return memory_manager.get_or_create(request.session_id)
@@ -182,9 +185,17 @@ def extract_tool_calls(result) -> List[ToolCall]:
                             tool_args = {}
                     elif isinstance(raw_args, dict):
                         tool_args = raw_args
-                    tool_call_id = str(part.tool_call_id) if getattr(part, "tool_call_id", None) else None
+                    tool_call_id = (
+                        str(part.tool_call_id)
+                        if getattr(part, "tool_call_id", None)
+                        else None
+                    )
                     tools_used.append(
-                        ToolCall(tool_name=tool_name, args=tool_args, tool_call_id=tool_call_id)
+                        ToolCall(
+                            tool_name=tool_name,
+                            args=tool_args,
+                            tool_call_id=tool_call_id,
+                        )
                     )
                 except Exception as exc:
                     logger.debug("Failed to parse tool call part: %s", exc)
@@ -210,6 +221,7 @@ async def get_optional_current_user(request: Request) -> Optional[Dict]:
     token = auth[7:]
     try:
         from .auth_utils import decode_access_token
+
         payload = decode_access_token(token)
         user_id = payload.get("sub")
         if not user_id:
@@ -217,7 +229,7 @@ async def get_optional_current_user(request: Request) -> Optional[Dict]:
         return {
             "id": user_id,
             "email": payload.get("email"),
-            "roles": payload.get("roles", [])
+            "roles": payload.get("roles", []),
         }
     except Exception:
         return None
@@ -238,7 +250,9 @@ async def execute_agent(
 
     verdict = check_input(message)
     if not verdict.allowed:
-        blocked = verdict.user_message or "Maazrat, main is sawal ka jawab nahi de sakta."
+        blocked = (
+            verdict.user_message or "Maazrat, main is sawal ka jawab nahi de sakta."
+        )
         save_conversation_turn(session_id, message, blocked)
         return blocked, [], deps
     safe_message = verdict.sanitized_input or message
@@ -248,7 +262,8 @@ async def execute_agent(
         history = get_conversation_context(session_id)
         full_prompt = (
             f"Previous conversation:\n{history}\n\nCurrent question: {safe_message}"
-            if history else safe_message
+            if history
+            else safe_message
         )
 
         result = await rag_agent.run(full_prompt, deps=deps)
@@ -270,8 +285,8 @@ async def execute_agent(
         return error_response, [], deps
 
 
-
 # ── /api/v1/health ────────────────────────────────────────────────────────────
+
 
 @v1_router.get("/health", response_model=HealthStatus, tags=["health"])
 async def health_check():
@@ -300,6 +315,7 @@ async def health_check():
 
 # ── /api/v1/chat ──────────────────────────────────────────────────────────────
 
+
 @v1_router.post("/chat", response_model=ChatResponse, tags=["chat"])
 async def chat(request: ChatRequest, fastapi_req: Request):
     """Non-streaming chat — returns the full agent response in one payload."""
@@ -312,6 +328,7 @@ async def chat(request: ChatRequest, fastapi_req: Request):
 
         # ── Out-of-Scope check (Tier 1) ──
         from .guardrails import classify_query_scope
+
         scope_verdict = await classify_query_scope(request.message)
 
         if scope_verdict == "out_of_scope":
@@ -323,7 +340,12 @@ async def chat(request: ChatRequest, fastapi_req: Request):
             # Log turn to postgres messages
             try:
                 await db_utils.add_message(session_id, "user", request.message)
-                await db_utils.add_message(session_id, "assistant", decline_msg, metadata={"out_of_scope": True})
+                await db_utils.add_message(
+                    session_id,
+                    "assistant",
+                    decline_msg,
+                    metadata={"out_of_scope": True},
+                )
             except Exception as db_exc:
                 logger.warning("Failed to save out-of-scope turn to DB: %s", db_exc)
 
@@ -331,7 +353,7 @@ async def chat(request: ChatRequest, fastapi_req: Request):
                 message=decline_msg,
                 session_id=session_id,
                 tools_used=[],
-                metadata={"out_of_scope": True}
+                metadata={"out_of_scope": True},
             )
 
         # ── RAG Agent Turn Execution ──
@@ -354,22 +376,26 @@ async def chat(request: ChatRequest, fastapi_req: Request):
             if chunk.score > max_score:
                 max_score = chunk.score
             meta = chunk.metadata or {}
-            page_sec = meta.get("page") or meta.get("section") or meta.get("page_number")
+            page_sec = (
+                meta.get("page") or meta.get("section") or meta.get("page_number")
+            )
             page_sec_str = f"Page/Section {page_sec}" if page_sec else None
-            prov_sources.append({
-                "source_document_name": chunk.document_title,
-                "chunk_id": chunk.chunk_id,
-                "page_section": page_sec_str,
-                "retrieval_method_used": selected_tool,
-                "confidence_score": float(chunk.score)
-            })
+            prov_sources.append(
+                {
+                    "source_document_name": chunk.document_title,
+                    "chunk_id": chunk.chunk_id,
+                    "page_section": page_sec_str,
+                    "retrieval_method_used": selected_tool,
+                    "confidence_score": float(chunk.score),
+                }
+            )
 
         debug_metadata = {
             "provenance": {
                 "sources": prov_sources,
                 "timestamp": datetime.utcnow().isoformat() + "Z",
                 "user_query": request.message,
-                "final_answer": response
+                "final_answer": response,
             },
             "debug": {
                 "selected_retrieval_tool": selected_tool,
@@ -379,16 +405,12 @@ async def chat(request: ChatRequest, fastapi_req: Request):
                         "content": c.content,
                         "score": float(c.score),
                         "document_title": c.document_title,
-                        "document_source": c.document_source
+                        "document_source": c.document_source,
                     }
                     for c in chunks
                 ],
                 "neo4j_results": [
-                    {
-                        "fact": f.fact,
-                        "valid_at": f.valid_at
-                    }
-                    for f in graph_facts
+                    {"fact": f.fact, "valid_at": f.valid_at} for f in graph_facts
                 ],
                 "redis_session_context": get_conversation_context(session_id),
                 "final_generated_prompt_summary": f"Previous conversation context + current question: {request.message}",
@@ -396,9 +418,9 @@ async def chat(request: ChatRequest, fastapi_req: Request):
                 "guardrail_result": {
                     "input_allowed": True,
                     "input_reason": None,
-                    "output_applied": True
-                }
-            }
+                    "output_applied": True,
+                },
+            },
         }
 
         # ── Confidence Gate (Tier 2) ──
@@ -407,6 +429,7 @@ async def chat(request: ChatRequest, fastapi_req: Request):
         if is_low_confidence:
             # Trigger background Celery task
             from worker.tasks import notify_admin_weak_context_task
+
             notify_admin_weak_context_task.delay(session_id, request.message)
 
             response = (
@@ -418,7 +441,9 @@ async def chat(request: ChatRequest, fastapi_req: Request):
         # ── Persistent Supabase Logs (Phase 2) ──
         try:
             await db_utils.add_message(session_id, "user", request.message)
-            await db_utils.add_message(session_id, "assistant", response, metadata=debug_metadata)
+            await db_utils.add_message(
+                session_id, "assistant", response, metadata=debug_metadata
+            )
         except Exception as exc:
             logger.warning("Failed to persist web chat turn to DB: %s", exc)
 
@@ -454,6 +479,7 @@ async def chat_stream(request: ChatRequest, fastapi_req: Request):
 
                 # ── Out-of-Scope check (Tier 1) ──
                 from .guardrails import classify_query_scope
+
                 scope_verdict = await classify_query_scope(request.message)
 
                 if scope_verdict == "out_of_scope":
@@ -466,18 +492,28 @@ async def chat_stream(request: ChatRequest, fastapi_req: Request):
                     # Log turns
                     try:
                         await db_utils.add_message(session_id, "user", request.message)
-                        await db_utils.add_message(session_id, "assistant", decline_msg, metadata={"out_of_scope": True})
+                        await db_utils.add_message(
+                            session_id,
+                            "assistant",
+                            decline_msg,
+                            metadata={"out_of_scope": True},
+                        )
                     except Exception as db_exc:
-                        logger.warning("Failed to save stream out-of-scope to DB: %s", db_exc)
+                        logger.warning(
+                            "Failed to save stream out-of-scope to DB: %s", db_exc
+                        )
                     yield f"data: {json.dumps({'type': 'end'})}\n\n"
                     return
 
                 # ── Confidence Gate Pre-check (Tier 2) ──
                 from .tools import hybrid_search_tool, HybridSearchInput
+
                 pre_chunks = []
                 try:
                     pre_chunks = await hybrid_search_tool(
-                        HybridSearchInput(query=request.message, limit=10, user_id=request.user_id)
+                        HybridSearchInput(
+                            query=request.message, limit=10, user_id=request.user_id
+                        )
                     )
                 except Exception as search_exc:
                     logger.warning("Pre-check hybrid search failed: %s", search_exc)
@@ -488,6 +524,7 @@ async def chat_stream(request: ChatRequest, fastapi_req: Request):
                 if is_low_confidence:
                     # Suppress response. Return notified fallback.
                     from worker.tasks import notify_admin_weak_context_task
+
                     notify_admin_weak_context_task.delay(session_id, request.message)
 
                     fallback_msg = (
@@ -498,16 +535,37 @@ async def chat_stream(request: ChatRequest, fastapi_req: Request):
 
                     # Log to Supabase
                     from datetime import datetime
+
                     debug_metadata = {
-                        "provenance": {"sources": [], "timestamp": datetime.utcnow().isoformat() + "Z", "user_query": request.message, "final_answer": fallback_msg},
-                        "debug": {"selected_retrieval_tool": "none", "retrieved_chunks": [], "neo4j_results": [], "redis_session_context": "", "final_answer": fallback_msg, "low_confidence_triggered": True}
+                        "provenance": {
+                            "sources": [],
+                            "timestamp": datetime.utcnow().isoformat() + "Z",
+                            "user_query": request.message,
+                            "final_answer": fallback_msg,
+                        },
+                        "debug": {
+                            "selected_retrieval_tool": "none",
+                            "retrieved_chunks": [],
+                            "neo4j_results": [],
+                            "redis_session_context": "",
+                            "final_answer": fallback_msg,
+                            "low_confidence_triggered": True,
+                        },
                     }
                     try:
                         await db_utils.add_message(session_id, "user", request.message)
-                        await db_utils.add_message(session_id, "assistant", fallback_msg, metadata=debug_metadata)
+                        await db_utils.add_message(
+                            session_id,
+                            "assistant",
+                            fallback_msg,
+                            metadata=debug_metadata,
+                        )
                     except Exception as db_exc:
-                        logger.warning("Failed to save stream low-confidence turn to DB: %s", db_exc)
-                    
+                        logger.warning(
+                            "Failed to save stream low-confidence turn to DB: %s",
+                            db_exc,
+                        )
+
                     if is_admin:
                         yield f"data: {json.dumps({'type': 'tools', 'tools': [], 'metadata': debug_metadata})}\n\n"
                     yield f"data: {json.dumps({'type': 'end'})}\n\n"
@@ -515,9 +573,13 @@ async def chat_stream(request: ChatRequest, fastapi_req: Request):
 
                 # ── Normal Stream RAG ──
                 from .guardrails import check_input, apply_output_guardrails
+
                 verdict = check_input(request.message)
                 if not verdict.allowed:
-                    blocked = verdict.user_message or "Maazrat, main is sawal ka jawab nahi de sakta."
+                    blocked = (
+                        verdict.user_message
+                        or "Maazrat, main is sawal ka jawab nahi de sakta."
+                    )
                     yield f"data: {json.dumps({'type': 'text', 'content': blocked})}\n\n"
                     save_conversation_turn(session_id, request.message, blocked)
                     yield f"data: {json.dumps({'type': 'end'})}\n\n"
@@ -532,7 +594,8 @@ async def chat_stream(request: ChatRequest, fastapi_req: Request):
                 history = get_conversation_context(session_id)
                 full_prompt = (
                     f"Previous conversation:\n{history}\n\nCurrent question: {safe_message}"
-                    if history else safe_message
+                    if history
+                    else safe_message
                 )
 
                 full_response = ""
@@ -542,12 +605,22 @@ async def chat_stream(request: ChatRequest, fastapi_req: Request):
                         if rag_agent.is_model_request_node(node):
                             async with node.stream(run.ctx) as stream:
                                 async for event in stream:
-                                    from pydantic_ai.messages import PartStartEvent, PartDeltaEvent, TextPartDelta
-                                    if isinstance(event, PartStartEvent) and event.part.part_kind == "text":
+                                    from pydantic_ai.messages import (
+                                        PartStartEvent,
+                                        PartDeltaEvent,
+                                        TextPartDelta,
+                                    )
+
+                                    if (
+                                        isinstance(event, PartStartEvent)
+                                        and event.part.part_kind == "text"
+                                    ):
                                         delta = event.part.content
                                         yield f"data: {json.dumps({'type': 'text', 'content': delta})}\n\n"
                                         full_response += delta
-                                    elif isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
+                                    elif isinstance(
+                                        event, PartDeltaEvent
+                                    ) and isinstance(event.delta, TextPartDelta):
                                         delta = event.delta.content_delta
                                         yield f"data: {json.dumps({'type': 'text', 'content': delta})}\n\n"
                                         full_response += delta
@@ -561,6 +634,7 @@ async def chat_stream(request: ChatRequest, fastapi_req: Request):
 
                 # Assemble provenance and debug info
                 from datetime import datetime
+
                 chunks = deps.retrieved_chunks or []
                 graph_facts = deps.graph_facts or []
                 selected_tool = deps.selected_retrieval_tool or "hybrid_search"
@@ -568,22 +642,28 @@ async def chat_stream(request: ChatRequest, fastapi_req: Request):
                 prov_sources = []
                 for chunk in chunks:
                     meta = chunk.metadata or {}
-                    page_sec = meta.get("page") or meta.get("section") or meta.get("page_number")
+                    page_sec = (
+                        meta.get("page")
+                        or meta.get("section")
+                        or meta.get("page_number")
+                    )
                     page_sec_str = f"Page/Section {page_sec}" if page_sec else None
-                    prov_sources.append({
-                        "source_document_name": chunk.document_title,
-                        "chunk_id": chunk.chunk_id,
-                        "page_section": page_sec_str,
-                        "retrieval_method_used": selected_tool,
-                        "confidence_score": float(chunk.score)
-                    })
+                    prov_sources.append(
+                        {
+                            "source_document_name": chunk.document_title,
+                            "chunk_id": chunk.chunk_id,
+                            "page_section": page_sec_str,
+                            "retrieval_method_used": selected_tool,
+                            "confidence_score": float(chunk.score),
+                        }
+                    )
 
                 debug_metadata = {
                     "provenance": {
                         "sources": prov_sources,
                         "timestamp": datetime.utcnow().isoformat() + "Z",
                         "user_query": request.message,
-                        "final_answer": guarded
+                        "final_answer": guarded,
                     },
                     "debug": {
                         "selected_retrieval_tool": selected_tool,
@@ -593,15 +673,12 @@ async def chat_stream(request: ChatRequest, fastapi_req: Request):
                                 "content": c.content,
                                 "score": float(c.score),
                                 "document_title": c.document_title,
-                                "document_source": c.document_source
+                                "document_source": c.document_source,
                             }
                             for c in chunks
                         ],
                         "neo4j_results": [
-                            {
-                                "fact": f.fact,
-                                "valid_at": f.valid_at
-                            }
+                            {"fact": f.fact, "valid_at": f.valid_at}
                             for f in graph_facts
                         ],
                         "redis_session_context": get_conversation_context(session_id),
@@ -610,15 +687,17 @@ async def chat_stream(request: ChatRequest, fastapi_req: Request):
                         "guardrail_result": {
                             "input_allowed": True,
                             "input_reason": None,
-                            "output_applied": True
-                        }
-                    }
+                            "output_applied": True,
+                        },
+                    },
                 }
 
                 # Save turns durably
                 try:
                     await db_utils.add_message(session_id, "user", request.message)
-                    await db_utils.add_message(session_id, "assistant", guarded, metadata=debug_metadata)
+                    await db_utils.add_message(
+                        session_id, "assistant", guarded, metadata=debug_metadata
+                    )
                 except Exception as exc:
                     logger.warning("Failed to persist stream turn: %s", exc)
 
@@ -646,13 +725,18 @@ async def chat_stream(request: ChatRequest, fastapi_req: Request):
 
 # ── /api/v1/search ────────────────────────────────────────────────────────────
 
+
 @v1_router.post("/search/vector", response_model=SearchResponse, tags=["search"])
 async def search_vector(request: SearchRequest):
     """Pure vector (semantic) search using pgvector cosine similarity."""
     try:
         t0 = datetime.now()
         results = await vector_search_tool(
-            VectorSearchInput(query=request.query, limit=request.limit, user_id=request.filters.get("user_id"))
+            VectorSearchInput(
+                query=request.query,
+                limit=request.limit,
+                user_id=request.filters.get("user_id"),
+            )
         )
         return SearchResponse(
             results=results,
@@ -707,6 +791,7 @@ async def search_hybrid(request: SearchRequest):
 
 # ── /api/v1/documents ────────────────────────────────────────────────────────
 
+
 @v1_router.get("/documents", tags=["documents"])
 async def list_documents_endpoint(
     limit: int = 20,
@@ -718,7 +803,12 @@ async def list_documents_endpoint(
         documents = await list_documents_tool(
             DocumentListInput(limit=limit, offset=offset, user_id=user_id)
         )
-        return {"documents": documents, "total": len(documents), "limit": limit, "offset": offset}
+        return {
+            "documents": documents,
+            "total": len(documents),
+            "limit": limit,
+            "offset": offset,
+        }
     except Exception as exc:
         logger.error("Document listing failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
@@ -729,6 +819,7 @@ async def get_document_endpoint(document_id: str):
     """Retrieve a single document's full details and content."""
     try:
         from .tools import get_document_tool, DocumentInput
+
         doc = await get_document_tool(DocumentInput(document_id=document_id))
         if not doc:
             raise HTTPException(status_code=404, detail="Document not found")
@@ -745,6 +836,7 @@ async def delete_document_endpoint(document_id: str):
     """Delete an ingested document and its chunks."""
     try:
         from .db_utils import delete_document, get_document
+
         doc = await get_document(document_id)
         if not doc:
             raise HTTPException(status_code=404, detail="Document not found")
@@ -752,6 +844,7 @@ async def delete_document_endpoint(document_id: str):
         # Rebuild BM25 index after deletion!
         try:
             from agent.retriever import hybrid_retriever
+
             await hybrid_retriever.rebuild_index()
         except Exception as exc:
             logger.warning("BM25 rebuild skipped: %s", exc)
@@ -782,7 +875,9 @@ async def upload_document_endpoint(
         try:
             content, file_meta = parse_document(tmp_path)
             if not content.strip():
-                raise HTTPException(status_code=400, detail="Document contains no parseable text")
+                raise HTTPException(
+                    status_code=400, detail="Document contains no parseable text"
+                )
 
             # Unique source
             source = f"upload://{uuid.uuid4()}/{file.filename}"
@@ -809,6 +904,7 @@ async def upload_document_endpoint(
             }
         finally:
             import os
+
             try:
                 os.unlink(tmp_path)
             except Exception:
@@ -823,6 +919,7 @@ async def upload_document_endpoint(
 
 # ── /api/v1/sessions ─────────────────────────────────────────────────────────
 
+
 @v1_router.get("/sessions/{session_id}", tags=["sessions"])
 async def get_session_info(session_id: str):
     """Return in-memory session metadata (turn count, window size)."""
@@ -832,6 +929,7 @@ async def get_session_info(session_id: str):
 
 
 # ── /api/v1/ingest ───────────────────────────────────────────────────────────
+
 
 @v1_router.post("/ingest/trigger", tags=["ingest"])
 async def trigger_ingest():
@@ -858,7 +956,12 @@ async def ingest_s3_bucket(bucket_type: str = "private", prefix: str = ""):
     from worker.tasks import ingest_bucket_task
 
     async_result = ingest_bucket_task.delay(bucket_type=bucket_type, prefix=prefix)
-    logger.info("Enqueued bucket ingest '%s/%s' (task_id=%s)", bucket_type, prefix, async_result.id)
+    logger.info(
+        "Enqueued bucket ingest '%s/%s' (task_id=%s)",
+        bucket_type,
+        prefix,
+        async_result.id,
+    )
     return {
         "status": "queued",
         "task_id": async_result.id,
@@ -900,6 +1003,7 @@ async def s3_event_webhook(request: Request):
     # SNS subscription confirmation handshake
     if body.get("Type") == "SubscriptionConfirmation":
         import urllib.request
+
         urllib.request.urlopen(body["SubscribeURL"])
         return {"status": "confirmed"}
 
@@ -924,7 +1028,12 @@ async def s3_event_webhook(request: Request):
                 continue
 
             if "ObjectCreated" in event_name or "ObjectModified" in event_name:
-                logger.info("S3 event: %s → %s/%s (enqueuing)", event_name, bucket_name, object_key)
+                logger.info(
+                    "S3 event: %s → %s/%s (enqueuing)",
+                    event_name,
+                    bucket_name,
+                    object_key,
+                )
                 ingest_single_s3_task.delay(s3_key=object_key, bucket_name=bucket_name)
                 queued += 1
 
@@ -934,6 +1043,7 @@ async def s3_event_webhook(request: Request):
 
 
 # ── Exception handler ─────────────────────────────────────────────────────────
+
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -954,6 +1064,7 @@ from .users_router import router as users_router  # noqa: E402
 from .whatsapp_router import router as whatsapp_router  # noqa: E402
 from .conversations_router import router as conversations_router  # noqa: E402
 from .dashboard_router import router as dashboard_router  # noqa: E402
+
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(whatsapp_router)

@@ -44,8 +44,8 @@ class TestWindow:
         for i in range(5):
             mgr.add_turn(sid, f"q{i}", f"a{i}")
         msgs = mgr.get_messages(sid)
-        assert len(msgs) == 4               # only last 2 turns retained
-        assert "q4" in msgs[-2].content     # newest turn present
+        assert len(msgs) == 4  # only last 2 turns retained
+        assert "q4" in msgs[-2].content  # newest turn present
         assert all("q0" not in m.content for m in msgs)  # oldest dropped
 
 

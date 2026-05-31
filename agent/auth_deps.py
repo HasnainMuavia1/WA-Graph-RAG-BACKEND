@@ -16,7 +16,9 @@ from . import db_utils
 def _bearer_token(request: Request) -> str:
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+        raise HTTPException(
+            status_code=401, detail="Missing or invalid Authorization header"
+        )
     return auth[7:]
 
 
@@ -32,7 +34,13 @@ async def get_current_user(token: str = Depends(_bearer_token)) -> Dict:
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid token payload")
 
-    result = await db_utils._client.table("users").select("*").eq("id", user_id).limit(1).execute()
+    result = (
+        await db_utils._client.table("users")
+        .select("*")
+        .eq("id", user_id)
+        .limit(1)
+        .execute()
+    )
     rows = result.data or []
     if not rows:
         raise HTTPException(status_code=401, detail="User not found")
@@ -50,6 +58,7 @@ async def get_current_active_user(user: Dict = Depends(get_current_user)) -> Dic
 
 def require_roles(*roles: str):
     """Factory: returns a dependency that checks the user has at least one of the given roles."""
+
     async def _check(user: Dict = Depends(get_current_active_user)) -> Dict:
         user_roles: List[str] = user.get("roles", [])
         if not any(r in user_roles for r in roles):
@@ -58,4 +67,5 @@ def require_roles(*roles: str):
                 detail=f"Required role(s): {', '.join(roles)}",
             )
         return user
+
     return _check

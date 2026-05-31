@@ -11,7 +11,11 @@ from typing import Dict
 
 from dotenv import load_dotenv
 
-from .s3_utils import list_documents_from_s3, download_document_from_s3, verify_s3_access
+from .s3_utils import (
+    list_documents_from_s3,
+    download_document_from_s3,
+    verify_s3_access,
+)
 from .file_parsers import parse_document
 from .chunker import ChunkingConfig, create_chunker
 from .embedder import create_embedder
@@ -19,6 +23,7 @@ from .graph_builder import build_knowledge_graph
 
 import sys
 import os
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from agent.access_control import assign_access_level
 
@@ -100,10 +105,18 @@ async def ingest_from_s3(
                         chunk=chunk.content,
                         embedding=embedding,
                         doc_key=doc_key,
-                        metadata={"bucket_type": bucket_type, "access_level": access_level},
+                        metadata={
+                            "bucket_type": bucket_type,
+                            "access_level": access_level,
+                        },
                     )
 
-                logger.info("Processed '%s' → %d chunks [%s]", doc_key, len(embedded_chunks), access_level)
+                logger.info(
+                    "Processed '%s' → %d chunks [%s]",
+                    doc_key,
+                    len(embedded_chunks),
+                    access_level,
+                )
                 stats["success"] += 1
 
             except Exception as exc:
@@ -112,7 +125,9 @@ async def ingest_from_s3(
 
     logger.info(
         "Ingestion complete — success=%d, failed=%d, skipped=%d",
-        stats["success"], stats["failed"], stats["skipped"],
+        stats["success"],
+        stats["failed"],
+        stats["skipped"],
     )
     return stats
 

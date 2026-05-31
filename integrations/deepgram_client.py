@@ -67,7 +67,7 @@ class DeepgramTranscriber:
                 request=audio,
                 model=self.model,
                 language=self.language,
-                smart_format=True,   # punctuation + capitalization
+                smart_format=True,  # punctuation + capitalization
                 punctuate=True,
             )
         except Exception as exc:
@@ -78,11 +78,15 @@ class DeepgramTranscriber:
                 response.results.channels[0].alternatives[0].transcript or ""
             ).strip()
         except (AttributeError, IndexError, TypeError) as exc:
-            raise TranscriptionError(f"Unexpected Deepgram response shape: {exc}") from exc
+            raise TranscriptionError(
+                f"Unexpected Deepgram response shape: {exc}"
+            ) from exc
 
         if not transcript:
             raise TranscriptionError("Transcription returned empty text.")
-        logger.info("Transcribed %d bytes of audio → %d chars", len(audio), len(transcript))
+        logger.info(
+            "Transcribed %d bytes of audio → %d chars", len(audio), len(transcript)
+        )
         return transcript
 
 

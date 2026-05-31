@@ -38,7 +38,9 @@ async def run_agent_turn(
     # ── Input guardrails (fail closed) ────────────────────────────────────────
     verdict = check_input(message)
     if not verdict.allowed:
-        blocked = verdict.user_message or "Maazrat, main is sawal ka jawab nahi de sakta."
+        blocked = (
+            verdict.user_message or "Maazrat, main is sawal ka jawab nahi de sakta."
+        )
         memory_manager.add_turn(session_id, message, blocked)
         return blocked, AgentDependencies(session_id=session_id, user_id=user_id)
     safe_message = verdict.sanitized_input or message
@@ -66,9 +68,6 @@ async def run_agent_turn(
         return response, deps
     except Exception as exc:
         logger.error("Agent turn failed (session=%s): %s", session_id, exc)
-        error_response = (
-            "Maazrat — aap ka message process karte hue masla hua. Baraye meharbani dobara koshish karein."
-        )
+        error_response = "Maazrat — aap ka message process karte hue masla hua. Baraye meharbani dobara koshish karein."
         memory_manager.add_turn(session_id, message, error_response)
         return error_response, AgentDependencies(session_id=session_id, user_id=user_id)
-

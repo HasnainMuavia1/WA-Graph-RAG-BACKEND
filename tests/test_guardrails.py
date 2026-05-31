@@ -7,6 +7,7 @@ from agent import guardrails
 
 # ── Input guardrails ──────────────────────────────────────────────────────────
 
+
 class TestInputGuardrails:
     def test_allows_normal_university_question(self):
         res = guardrails.check_input("Admission ki last date kya hai?")
@@ -52,6 +53,7 @@ class TestInputGuardrails:
 
 # ── Output guardrails ─────────────────────────────────────────────────────────
 
+
 class TestOutputGuardrails:
     def test_redacts_cnic(self):
         out = guardrails.redact_pii("Your CNIC 35201-1234567-8 is on file")
@@ -63,7 +65,9 @@ class TestOutputGuardrails:
         assert "[REDACTED-KEY]" in out
 
     def test_scrubs_system_prompt_leak(self):
-        leaked = "Sure!\nYou are 'Uchenab Assistant', the official AI helpdesk\nFees are 50k"
+        leaked = (
+            "Sure!\nYou are 'Uchenab Assistant', the official AI helpdesk\nFees are 50k"
+        )
         out = guardrails.scrub_leaks(leaked)
         assert "Uchenab Assistant'," not in out
         assert "Fees are 50k" in out

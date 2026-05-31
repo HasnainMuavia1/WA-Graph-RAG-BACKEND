@@ -64,9 +64,7 @@ class HybridRetriever:
 
     # ── Index management ──────────────────────────────────────────────────────
 
-    async def build_index(
-        self, chunks: Optional[List[Dict[str, Any]]] = None
-    ) -> None:
+    async def build_index(self, chunks: Optional[List[Dict[str, Any]]] = None) -> None:
         """
         Build (or rebuild) the in-memory BM25 index.
 
@@ -146,9 +144,7 @@ class HybridRetriever:
             return []
 
         loop = asyncio.get_event_loop()
-        retrieved_nodes = await loop.run_in_executor(
-            None, self._bm25.retrieve, query
-        )
+        retrieved_nodes = await loop.run_in_executor(None, self._bm25.retrieve, query)
 
         results = []
         for node in retrieved_nodes:
@@ -217,16 +213,18 @@ class HybridRetriever:
                 .execute()
             )
             rows = []
-            for r in (result.data or []):
-                doc = (r.pop("documents", None) or {})
-                rows.append({
-                    "chunk_id": r["id"],
-                    "document_id": r["document_id"],
-                    "content": r["content"],
-                    "metadata": r.get("metadata", {}),
-                    "document_title": doc.get("title", ""),
-                    "document_source": doc.get("source", ""),
-                })
+            for r in result.data or []:
+                doc = r.pop("documents", None) or {}
+                rows.append(
+                    {
+                        "chunk_id": r["id"],
+                        "document_id": r["document_id"],
+                        "content": r["content"],
+                        "metadata": r.get("metadata", {}),
+                        "document_title": doc.get("title", ""),
+                        "document_source": doc.get("source", ""),
+                    }
+                )
             return rows
         except Exception as exc:
             logger.error("Failed to load chunks for BM25 index: %s", exc)

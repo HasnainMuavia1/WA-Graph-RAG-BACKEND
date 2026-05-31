@@ -94,7 +94,9 @@ async def test_graph_connection() -> bool:
     if not _driver:
         return False
     try:
-        async with _driver.session(database=os.getenv("NEO4J_DATABASE", "neo4j")) as session:
+        async with _driver.session(
+            database=os.getenv("NEO4J_DATABASE", "neo4j")
+        ) as session:
             await session.run("RETURN 1")
         return True
     except Exception as exc:
@@ -121,7 +123,9 @@ async def search_knowledge_graph(query: str) -> List[Dict[str, Any]]:
     LIMIT 20
     """
     try:
-        async with _driver.session(database=os.getenv("NEO4J_DATABASE", "neo4j")) as session:
+        async with _driver.session(
+            database=os.getenv("NEO4J_DATABASE", "neo4j")
+        ) as session:
             result = await session.run(cypher, query=query)
             records = await result.data()
         return records
@@ -130,9 +134,7 @@ async def search_knowledge_graph(query: str) -> List[Dict[str, Any]]:
         return []
 
 
-async def get_entity_relationships(
-    entity: str, depth: int = 2
-) -> Dict[str, Any]:
+async def get_entity_relationships(entity: str, depth: int = 2) -> Dict[str, Any]:
     """Return entities and relationships within *depth* hops from *entity*."""
     if not _driver:
         return {"central_entity": entity, "related_entities": [], "relationships": []}
@@ -146,7 +148,9 @@ async def get_entity_relationships(
     LIMIT 50
     """
     try:
-        async with _driver.session(database=os.getenv("NEO4J_DATABASE", "neo4j")) as session:
+        async with _driver.session(
+            database=os.getenv("NEO4J_DATABASE", "neo4j")
+        ) as session:
             result = await session.run(cypher, entity=entity)
             records = await result.data()
         if records:
@@ -156,7 +160,12 @@ async def get_entity_relationships(
                 "relationships": records[0].get("relationship_types", []),
                 "depth": depth,
             }
-        return {"central_entity": entity, "related_entities": [], "relationships": [], "depth": depth}
+        return {
+            "central_entity": entity,
+            "related_entities": [],
+            "relationships": [],
+            "depth": depth,
+        }
     except Exception as exc:
         logger.error("Entity relationship query failed: %s", exc)
         return {

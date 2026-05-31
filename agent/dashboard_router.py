@@ -22,8 +22,10 @@ _auth = get_current_active_user
 CACHE_KEY = "uchenab:dashboard:stats"
 CACHE_TTL = 60  # 60 seconds cache
 
+
 def _get_supabase_client():
     from . import db_utils
+
     if db_utils._client is None:
         raise RuntimeError("Supabase client not initialized")
     return db_utils._client
@@ -32,7 +34,7 @@ def _get_supabase_client():
 @router.get("/stats")
 async def get_dashboard_stats_endpoint(current_user=Depends(_auth)):
     """Fetch total conversation counts and 7-day message trends.
-    
+
     Results are cached in Redis for 60 seconds to protect the PostgreSQL/Supabase database.
     """
     # 1. Try serving from Redis cache
@@ -49,47 +51,92 @@ async def get_dashboard_stats_endpoint(current_user=Depends(_auth)):
     # 2. Cache miss: Fetch from Supabase
     try:
         client = _get_supabase_client()
-        
+
         # A. Fetch total chats
-        chats_res = await client.table("wa_conversations").select("id", count="exact").execute()
-        total_chats = chats_res.count if chats_res.count is not None else len(chats_res.data or [])
+        chats_res = (
+            await client.table("wa_conversations").select("id", count="exact").execute()
+        )
+        total_chats = (
+            chats_res.count
+            if chats_res.count is not None
+            else len(chats_res.data or [])
+        )
 
         # B. Fetch agent replies
-        agent_res = await client.table("wa_messages").select("id", count="exact").eq("sender", "agent").execute()
-        agent_messages = agent_res.count if agent_res.count is not None else len(agent_res.data or [])
+        agent_res = (
+            await client.table("wa_messages")
+            .select("id", count="exact")
+            .eq("sender", "agent")
+            .execute()
+        )
+        agent_messages = (
+            agent_res.count
+            if agent_res.count is not None
+            else len(agent_res.data or [])
+        )
 
         # C. Fetch admin replies
-        admin_res = await client.table("wa_messages").select("id", count="exact").eq("sender", "admin").execute()
-        admin_messages = admin_res.count if admin_res.count is not None else len(admin_res.data or [])
+        admin_res = (
+            await client.table("wa_messages")
+            .select("id", count="exact")
+            .eq("sender", "admin")
+            .execute()
+        )
+        admin_messages = (
+            admin_res.count
+            if admin_res.count is not None
+            else len(admin_res.data or [])
+        )
 
         # D. Fetch user messages received
-        user_res = await client.table("wa_messages").select("id", count="exact").eq("sender", "user").execute()
-        user_messages = user_res.count if user_res.count is not None else len(user_res.data or [])
+        user_res = (
+            await client.table("wa_messages")
+            .select("id", count="exact")
+            .eq("sender", "user")
+            .execute()
+        )
+        user_messages = (
+            user_res.count if user_res.count is not None else len(user_res.data or [])
+        )
 
         # E. Calculate 7-day trend
         now_utc = datetime.now(timezone.utc)
-        start_date = (now_utc - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
+        start_date = (now_utc - timedelta(days=6)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
         start_date_str = start_date.isoformat()
 
         # Fetch messages in the last 7 days
-        msg_trend_res = await client.table("wa_messages").select("sender, created_at").gte("created_at", start_date_str).execute()
+        msg_trend_res = (
+            await client.table("wa_messages")
+            .select("sender, created_at")
+            .gte("created_at", start_date_str)
+            .execute()
+        )
         messages_in_period = msg_trend_res.data or []
 
         # Fetch conversations started in the last 7 days
-        conv_trend_res = await client.table("wa_conversations").select("created_at").gte("created_at", start_date_str).execute()
+        conv_trend_res = (
+            await client.table("wa_conversations")
+            .select("created_at")
+            .gte("created_at", start_date_str)
+            .execute()
+        )
         conversations_in_period = conv_trend_res.data or []
 
         # Build dates structure
         trends = []
         for i in range(6, -1, -1):
             day = (now_utc - timedelta(days=i)).strftime("%Y-%m-%d")
-            trends.append({
-                "date": day,
-                "chats_started": 0,
-                "user_messages": 0,
-                "agent_messages": 0,
-                "admin_messages": 0
-            })
+            trends.append(
+                {
+                    "date": day,
+                    "chats_started": 0,
+                    "user_messages": 0,
+                    "agent_messages": 0,
+                    "admin_messages": 0,
+                }
+            )
 
         # Aggregate messages by date
         for msg in messages_in_period:
@@ -128,7 +175,7 @@ async def get_dashboard_stats_endpoint(current_user=Depends(_auth)):
             },
             "trends": trends,
             "cached": False,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
         # 3. Save to Redis cache for subsequent loads
